@@ -1,0 +1,41 @@
+name: Build macOS app
+
+# AlienShot is developed on Windows, which cannot cross-compile for macOS.
+# This builds the .app on a GitHub-hosted Mac and uploads it as an artifact,
+# so a Mac is only needed to *run* the result, not to build it.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # pubspec.lock resolves against Dart >= 3.12 / Flutter >= 3.44,
+          # which is only on beta at the time of writing.
+          channel: beta
+          cache: true
+
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - run: flutter build macos --release
+
+      - name: Zip the .app
+        # ditto, not zip: it preserves the bundle's symlinks and metadata, so
+        # the app still launches after being unpacked on another Mac.
+        run: |
+          cd build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent AlienShot.app AlienShot-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlienShot-macos
+          path: build/macos/Build/Products/Release/AlienShot-macos.zip
+          if-no-files-found: error
