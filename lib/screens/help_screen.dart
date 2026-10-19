@@ -19,7 +19,7 @@ class HelpScreen extends StatelessWidget {
       appBar: AppWindowBar(
         title: 'Help',
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, size: 18, color: AppColors.textSoft),
+          icon: Icon(Icons.arrow_back_rounded, size: 18, color: AlienPalette.of(context).textSoft),
           onPressed: onBack,
         ),
       ),
@@ -68,7 +68,7 @@ class _Section extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Text(text, style: kEyebrowStyle),
+      child: Text(text, style: AlienPalette.of(context).eyebrow),
     );
   }
 }
@@ -95,14 +95,15 @@ class _Tip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
         children: [
-          Icon(icon, size: 17, color: AppColors.accent2),
+          Icon(icon, size: 17, color: palette.accentText),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 13, color: AppColors.text)),
+            child: Text(text, style: TextStyle(fontSize: 13, color: palette.text)),
           ),
         ],
       ),

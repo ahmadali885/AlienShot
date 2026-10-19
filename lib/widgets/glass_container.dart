@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 /// The glass surface used across alienwavegroup.com (its nav pill and cookie
-/// bar): a dark teal-tinted translucent fill over `blur(14px) saturate(1.3)`,
-/// a hairline white border and the site's long teal drop shadow.
+/// bar): a translucent fill over `blur(14px) saturate(1.3)`, a hairline
+/// border and the site's teal drop shadow — tinted per [AlienPalette].
 class GlassContainer extends StatelessWidget {
   const GlassContainer({
     super.key,
@@ -25,14 +25,19 @@ class GlassContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     final radius = BorderRadius.circular(borderRadius);
 
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: radius,
         boxShadow: [
-          ...kCardShadow,
-          if (withGlow) BoxShadow(color: AppColors.accent.withValues(alpha: 0.22), blurRadius: 32),
+          ...palette.cardShadow,
+          if (withGlow)
+            BoxShadow(
+              color: AppColors.accent.withValues(alpha: palette.isLight ? 0.14 : 0.22),
+              blurRadius: 32,
+            ),
         ],
       ),
       child: ClipRRect(
@@ -45,9 +50,9 @@ class GlassContainer extends StatelessWidget {
           child: Container(
             padding: padding,
             decoration: BoxDecoration(
-              color: AppColors.glassFill,
+              color: palette.glassFill,
               borderRadius: radius,
-              border: Border.all(color: AppColors.glassBorder),
+              border: Border.all(color: palette.glassBorder),
             ),
             child: child,
           ),

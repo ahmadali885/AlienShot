@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart' show ThemeMode;
+
 class AppSettings {
   AppSettings({
     required this.hotKeyPresetId,
@@ -7,7 +9,11 @@ class AppSettings {
     this.customHotKeyKeyId,
     this.customHotKeyModifiers = const [],
     this.customHotKeyLabel,
+    this.themeMode = ThemeMode.system,
   });
+
+  /// Light, dark, or follow the Windows/macOS app theme.
+  final ThemeMode themeMode;
 
   final String hotKeyPresetId;
   final bool autoCopyOnCapture;
@@ -36,9 +42,11 @@ class AppSettings {
     customHotKeyModifiers:
         (json['customHotKeyModifiers'] as List<dynamic>?)?.cast<String>() ?? const [],
     customHotKeyLabel: json['customHotKeyLabel'] as String?,
+    themeMode: ThemeMode.values.asNameMap()[json['themeMode']] ?? ThemeMode.system,
   );
 
   Map<String, dynamic> toJson() => {
+    'themeMode': themeMode.name,
     'hotKeyPresetId': hotKeyPresetId,
     'autoCopyOnCapture': autoCopyOnCapture,
     'autoUploadOnCapture': autoUploadOnCapture,
@@ -56,8 +64,10 @@ class AppSettings {
     int? customHotKeyKeyId,
     List<String>? customHotKeyModifiers,
     String? customHotKeyLabel,
+    ThemeMode? themeMode,
   }) {
     return AppSettings(
+      themeMode: themeMode ?? this.themeMode,
       hotKeyPresetId: hotKeyPresetId ?? this.hotKeyPresetId,
       autoCopyOnCapture: autoCopyOnCapture ?? this.autoCopyOnCapture,
       autoUploadOnCapture: autoUploadOnCapture ?? this.autoUploadOnCapture,

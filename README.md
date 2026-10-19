@@ -75,8 +75,11 @@ flutter build macos --release
 Output: `build/macos/Build/Products/Release/AlienShot.app`
 
 The build is ad-hoc signed, not notarized, so on another Mac Gatekeeper blocks
-the first launch: right-click the app → **Open**, or run
-`xattr -cr AlienShot.app` once.
+the first launch when the app arrived through a browser download or AirDrop.
+On macOS 15+ the old right-click → Open bypass is gone: try to open it once,
+then System Settings → Privacy & Security → **Open Anyway**. Alternatively run
+`xattr -cr AlienShot.app` once, or copy the zip over on a USB drive, which
+doesn't set the quarantine flag at all.
 
 On first launch macOS will ask for **Screen Recording** permission (System
 Settings → Privacy & Security → Screen Recording). Until it's granted the

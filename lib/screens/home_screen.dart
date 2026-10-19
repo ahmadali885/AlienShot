@@ -28,6 +28,7 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
@@ -37,7 +38,7 @@ class HomeScreen extends StatelessWidget {
         actions: [
           IconButton(
             tooltip: 'Settings',
-            icon: const Icon(Icons.tune_rounded, size: 18, color: AppColors.textSoft),
+            icon: Icon(Icons.tune_rounded, size: 18, color: palette.textSoft),
             onPressed: onOpenSettings,
           ),
         ],
@@ -70,13 +71,13 @@ class HomeScreen extends StatelessWidget {
                         width: 6,
                         height: 6,
                         decoration: BoxDecoration(
-                          color: AppColors.accent2,
+                          color: palette.accentText,
                           shape: BoxShape.circle,
-                          boxShadow: glow(AppColors.accent2, blur: 8, alpha: 0.8),
+                          boxShadow: glow(palette.accentText, blur: 8, alpha: 0.8),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Text('RUNNING IN BACKGROUND', style: kEyebrowStyle),
+                      Text('RUNNING IN BACKGROUND', style: palette.eyebrow),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -94,7 +95,7 @@ class HomeScreen extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _QuietLink('Minimize to tray', onMinimize),
-                      const Text('·', style: TextStyle(color: AppColors.textSoft)),
+                      Text('·', style: TextStyle(color: palette.textSoft)),
                       _QuietLink('Quit AlienShot', onQuit),
                     ],
                   ),
@@ -115,17 +116,17 @@ class _Headline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const base = TextStyle(
-      fontFamily: AppFonts.display,
-      fontSize: 26,
-      fontWeight: FontWeight.w700,
-      letterSpacing: -0.3,
-      height: 1.15,
-      color: Colors.white,
-    );
+    final palette = AlienPalette.of(context);
     return Text.rich(
       TextSpan(
-        style: base,
+        style: TextStyle(
+          fontFamily: AppFonts.display,
+          fontSize: 26,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.3,
+          height: 1.15,
+          color: palette.isLight ? palette.text : Colors.white,
+        ),
         children: [
           const TextSpan(text: 'Ready to '),
           TextSpan(
@@ -148,28 +149,29 @@ class _ShortcutChip extends StatelessWidget {
   final String label;
   final bool active;
 
-  static const Color _warning = Color(0xFFFFB454);
-
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
+    // Light amber is unreadable on paper; the light theme needs a deeper one.
+    final warning = palette.isLight ? const Color(0xFFA35F00) : const Color(0xFFFFB454);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: ShapeDecoration(
-        color: active ? AppColors.ghostFill : _warning.withValues(alpha: 0.08),
+        color: active ? palette.ghostFill : warning.withValues(alpha: 0.08),
         shape: StadiumBorder(
-          side: BorderSide(color: active ? AppColors.ghostBorder : _warning.withValues(alpha: 0.5)),
+          side: BorderSide(color: active ? palette.ghostBorder : warning.withValues(alpha: 0.5)),
         ),
       ),
       child: Text.rich(
         TextSpan(
-          style: const TextStyle(fontSize: 12, color: AppColors.textSoft),
+          style: TextStyle(fontSize: 12, color: palette.textSoft),
           children: [
             if (!active)
-              const WidgetSpan(
+              WidgetSpan(
                 alignment: PlaceholderAlignment.middle,
                 child: Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: Icon(Icons.warning_amber_rounded, size: 14, color: _warning),
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Icon(Icons.warning_amber_rounded, size: 14, color: warning),
                 ),
               ),
             TextSpan(text: active ? 'Shortcut  ' : 'In use by another app  '),
@@ -177,11 +179,11 @@ class _ShortcutChip extends StatelessWidget {
               text: label,
               style: TextStyle(
                 fontFamily: AppFonts.display,
-                color: active ? AppColors.accent2 : _warning,
+                color: active ? palette.accentText : warning,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.3,
                 decoration: active ? null : TextDecoration.lineThrough,
-                decorationColor: _warning,
+                decorationColor: warning,
               ),
             ),
           ],
@@ -202,7 +204,7 @@ class _QuietLink extends StatelessWidget {
     return TextButton(
       onPressed: onPressed,
       style: TextButton.styleFrom(
-        foregroundColor: AppColors.textSoft,
+        foregroundColor: AlienPalette.of(context).textSoft,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         minimumSize: Size.zero,
         textStyle: const TextStyle(fontFamily: AppFonts.body, fontSize: 12, fontWeight: FontWeight.w500),

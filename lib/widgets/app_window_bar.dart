@@ -34,14 +34,15 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
         child: Container(
           height: height,
-          decoration: const BoxDecoration(
-            color: AppColors.glassFill,
-            border: Border(bottom: BorderSide(color: AppColors.glassBorder)),
+          decoration: BoxDecoration(
+            color: palette.glassFill,
+            border: Border(bottom: BorderSide(color: palette.glassBorder)),
           ),
           child: Row(
             children: [
@@ -52,11 +53,11 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
               else
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: AppFonts.display,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.text,
+                    color: palette.text,
                   ),
                 ),
               const Spacer(),
@@ -71,7 +72,7 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
 }
 
 /// The "ALIENSHOT" logotype, set like the site's "ALIENWAVE" mark: the shared
-/// "ALIEN" in white, the product half in the accent teal.
+/// "ALIEN" in the page's text colour, the product half in the accent teal.
 class BrandWordmark extends StatelessWidget {
   const BrandWordmark({super.key, this.fontSize = 15});
 
@@ -79,6 +80,7 @@ class BrandWordmark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return Text.rich(
       TextSpan(
         style: TextStyle(
@@ -86,11 +88,11 @@ class BrandWordmark extends StatelessWidget {
           fontSize: fontSize,
           fontWeight: FontWeight.w800,
           letterSpacing: fontSize * 0.08,
-          color: Colors.white,
+          color: palette.isLight ? palette.text : Colors.white,
         ),
-        children: const [
-          TextSpan(text: 'ALIEN'),
-          TextSpan(text: 'SHOT', style: TextStyle(color: AppColors.accent2)),
+        children: [
+          const TextSpan(text: 'ALIEN'),
+          TextSpan(text: 'SHOT', style: TextStyle(color: palette.accentText)),
         ],
       ),
     );

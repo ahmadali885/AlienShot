@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../theme/app_theme.dart';
+
 /// alienwavegroup.com's animated hero background: the same domain-warped fBm
 /// shader (shaders/hero.frag), drifting slowly and leaning toward the cursor.
 /// The glass panels on top blur it, which is what makes them read as glass.
@@ -80,6 +82,7 @@ class _LiquidBackgroundState extends State<LiquidBackground> with SingleTickerPr
   @override
   Widget build(BuildContext context) {
     final shader = _shader;
+    final light = AlienPalette.of(context).isLight;
     return MouseRegion(
       onHover: (event) => _cursor = event.localPosition,
       onExit: (_) => _cursor = null,
@@ -91,11 +94,12 @@ class _LiquidBackgroundState extends State<LiquidBackground> with SingleTickerPr
             children: [
               RepaintBoundary(
                 child: shader == null
-                    ? const DecoratedBox(decoration: _fallback)
+                    ? DecoratedBox(decoration: light ? _fallbackLight : _fallbackDark)
                     : CustomPaint(
                         painter: _HeroPainter(
                           shader: shader,
                           time: _time,
+                          light: light,
                           cursor: () => _eased ?? _size.center(Offset.zero),
                         ),
                       ),
@@ -110,7 +114,7 @@ class _LiquidBackgroundState extends State<LiquidBackground> with SingleTickerPr
 }
 
 /// The site's CSS backdrop behind the canvas, shown until the shader is ready.
-const BoxDecoration _fallback = BoxDecoration(
+const BoxDecoration _fallbackDark = BoxDecoration(
   gradient: RadialGradient(
     center: Alignment(0.44, -0.76),
     radius: 1.3,
@@ -119,11 +123,26 @@ const BoxDecoration _fallback = BoxDecoration(
   ),
 );
 
+const BoxDecoration _fallbackLight = BoxDecoration(
+  gradient: RadialGradient(
+    center: Alignment(0.44, -0.76),
+    radius: 1.3,
+    colors: [Color(0xFFC2E1F6), Color(0xFFEEF6FC), Color(0xFFDDEEFA)],
+    stops: [0.0, 0.55, 1.0],
+  ),
+);
+
 class _HeroPainter extends CustomPainter {
-  _HeroPainter({required this.shader, required this.time, required this.cursor}) : super(repaint: time);
+  _HeroPainter({
+    required this.shader,
+    required this.time,
+    required this.light,
+    required this.cursor,
+  }) : super(repaint: time);
 
   final ui.FragmentShader shader;
   final ValueNotifier<double> time;
+  final bool light;
   final Offset Function() cursor;
 
   @override
@@ -134,10 +153,12 @@ class _HeroPainter extends CustomPainter {
       ..setFloat(1, size.height)
       ..setFloat(2, time.value)
       ..setFloat(3, mouse.dx)
-      ..setFloat(4, size.height - mouse.dy);
+      ..setFloat(4, size.height - mouse.dy)
+      ..setFloat(5, light ? 1 : 0);
     canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
   }
 
   @override
-  bool shouldRepaint(covariant _HeroPainter oldDelegate) => oldDelegate.shader != shader;
+  bool shouldRepaint(covariant _HeroPainter oldDelegate) =>
+      oldDelegate.shader != shader || oldDelegate.light != light;
 }

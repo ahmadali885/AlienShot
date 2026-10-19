@@ -16,11 +16,17 @@ class SettingsScreen extends StatefulWidget {
     required this.settings,
     required this.onSave,
     required this.onBack,
+    required this.onPreviewTheme,
   });
 
   final AppSettings settings;
   final ValueChanged<AppSettings> onSave;
+
+  /// Leaving without saving; the app also drops any theme preview.
   final VoidCallback onBack;
+
+  /// Applies a theme immediately so it can be judged before saving.
+  final ValueChanged<ThemeMode> onPreviewTheme;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -53,15 +59,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     widget.onBack();
   }
 
+  void _pickTheme(ThemeMode mode) {
+    setState(() => _draft = _draft.copyWith(themeMode: mode));
+    widget.onPreviewTheme(mode);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
       appBar: AppWindowBar(
         title: 'Settings',
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, size: 18, color: AppColors.textSoft),
+          icon: Icon(Icons.arrow_back_rounded, size: 18, color: palette.textSoft),
           onPressed: widget.onBack,
         ),
         actions: [
@@ -75,6 +87,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 20 + AppWindowBar.height, 20, 20),
           children: [
+            const _SectionLabel('APPEARANCE', Icons.contrast_rounded),
+            const SizedBox(height: 8),
+            _ThemeSelector(value: _draft.themeMode, onChanged: _pickTheme),
+            const SizedBox(height: 24),
             const _SectionLabel('CAPTURE HOTKEY', Icons.keyboard_outlined),
             const SizedBox(height: 8),
             GlassContainer(
@@ -108,7 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         TextButton(
                           onPressed: _recordCustomHotKey,
                           style: TextButton.styleFrom(
-                            foregroundColor: AppColors.accent2,
+                            foregroundColor: palette.accentText,
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             minimumSize: Size.zero,
                             visualDensity: VisualDensity.compact,
@@ -162,9 +178,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 dense: true,
                 title: Text(
                   _draft.saveDirectory ?? 'Ask me every time',
-                  style: const TextStyle(fontSize: 13, color: AppColors.text),
+                  style: TextStyle(fontSize: 13, color: palette.text),
                 ),
-                trailing: const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.textSoft),
+                trailing: Icon(Icons.chevron_right_rounded, size: 18, color: palette.textSoft),
                 onTap: _pickSaveDirectory,
               ),
             ),
@@ -183,13 +199,80 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: Row(
         children: [
-          Icon(icon, size: 14, color: AppColors.accent2),
+          Icon(icon, size: 14, color: palette.accentText),
           const SizedBox(width: 8),
-          Text(text, style: kEyebrowStyle),
+          Text(text, style: palette.eyebrow),
+        ],
+      ),
+    );
+  }
+}
+
+/// System / Light / Dark as one segmented pill, styled like the site's nav
+/// group with the active option filled by the accent gradient.
+class _ThemeSelector extends StatelessWidget {
+  const _ThemeSelector({required this.value, required this.onChanged});
+
+  final ThemeMode value;
+  final ValueChanged<ThemeMode> onChanged;
+
+  static const _options = [
+    (ThemeMode.system, 'System', Icons.desktop_windows_rounded),
+    (ThemeMode.light, 'Light', Icons.light_mode_rounded),
+    (ThemeMode.dark, 'Dark', Icons.dark_mode_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
+    return GlassContainer(
+      borderRadius: 100,
+      padding: const EdgeInsets.all(5),
+      child: Row(
+        children: [
+          for (final (mode, label, icon) in _options)
+            Expanded(
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  customBorder: const StadiumBorder(),
+                  onTap: () => onChanged(mode),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    decoration: ShapeDecoration(
+                      shape: const StadiumBorder(),
+                      gradient: mode == value ? AppColors.accentGradient : null,
+                      shadows: mode == value ? kAccentGlow : null,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          icon,
+                          size: 15,
+                          color: mode == value ? AppColors.onAccent : palette.textSoft,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: mode == value ? AppColors.onAccent : palette.text,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

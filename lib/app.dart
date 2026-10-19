@@ -24,16 +24,25 @@ import 'theme/app_theme.dart';
 
 enum _View { home, settings, capture, about, help }
 
+/// The active theme choice. Lives above [MaterialApp] so the home state below
+/// it can switch themes, including a live preview from Settings.
+final ValueNotifier<ThemeMode> _themeMode = ValueNotifier(ThemeMode.system);
+
 class SnapGrabApp extends StatelessWidget {
   const SnapGrabApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'AlienShot',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      home: const SnapGrabHome(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: _themeMode,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'AlienShot',
+        debugShowCheckedModeBanner: false,
+        theme: buildAppTheme(Brightness.light),
+        darkTheme: buildAppTheme(Brightness.dark),
+        themeMode: mode,
+        home: const SnapGrabHome(),
+      ),
     );
   }
 }
@@ -45,7 +54,8 @@ class SnapGrabHome extends StatefulWidget {
   State<SnapGrabHome> createState() => _SnapGrabHomeState();
 }
 
-class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayListener {
+class _SnapGrabHomeState extends State<SnapGrabHome>
+    with WindowListener, TrayListener, WidgetsBindingObserver {
   ui.Image? _fullScreenImage;
   bool _capturing = false;
 
@@ -69,8 +79,27 @@ class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayLi
     super.initState();
     windowManager.addListener(this);
     trayManager.addListener(this);
+    WidgetsBinding.instance.addObserver(this);
     _instanceChannel.setMethodCallHandler(_onInstanceCall);
     _bootstrap();
+  }
+
+  /// Applies [mode] to the app and to the native title bar, which otherwise
+  /// keeps following the Windows theme and clashes with an explicit choice.
+  void _applyTheme(ThemeMode mode) {
+    _themeMode.value = mode;
+    if (!Platform.isWindows) return; // window_manager implements this on Windows only
+    final brightness = switch (mode) {
+      ThemeMode.light => Brightness.light,
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.system => WidgetsBinding.instance.platformDispatcher.platformBrightness,
+    };
+    windowManager.setBrightness(brightness);
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (_themeMode.value == ThemeMode.system) _applyTheme(ThemeMode.system);
   }
 
   Future<void> _onInstanceCall(MethodCall call) async {
@@ -87,6 +116,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayLi
   void dispose() {
     windowManager.removeListener(this);
     trayManager.removeListener(this);
+    WidgetsBinding.instance.removeObserver(this);
     hotKeyManager.unregisterAll();
     super.dispose();
   }
@@ -94,6 +124,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayLi
   Future<void> _bootstrap() async {
     await windowManager.setPreventClose(true);
     _settings = await settingsService.load();
+    _applyTheme(_settings.themeMode);
 
     await trayService.init(
       onSignIn: _showSignInComingSoon,
@@ -147,7 +178,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayLi
           '${resolveHotKeyLabel(_settings)} is already used by another program, '
           'so AlienShot can\'t respond to it. Pick a different shortcut — '
           'you can still capture from the tray icon meanwhile.',
-          style: const TextStyle(color: AppColors.textSoft, height: 1.4),
+          style: TextStyle(color: AlienPalette.of(context).textSoft, height: 1.4),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Later')),
@@ -287,6 +318,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayLi
 
   Future<void> _saveSettings(AppSettings settings) async {
     setState(() => _settings = settings);
+    _applyTheme(settings.themeMode);
     await settingsService.save(settings);
     if (!await _registerHotKey()) await _warnHotKeyUnavailable();
   }
@@ -303,10 +335,10 @@ class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayLi
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Sign in'),
-        content: const Text(
+        content: Text(
           'AlienWave accounts are coming soon — you\'ll be able to sign in '
           'and keep every upload in one place.',
-          style: TextStyle(color: AppColors.textSoft, height: 1.4),
+          style: TextStyle(color: AlienPalette.of(context).textSoft, height: 1.4),
         ),
         actions: [
           FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK')),
@@ -382,7 +414,12 @@ class _SnapGrabHomeState extends State<SnapGrabHome> with WindowListener, TrayLi
         return SettingsScreen(
           settings: _settings,
           onSave: _saveSettings,
-          onBack: () => setState(() => _view = _View.home),
+          onPreviewTheme: _applyTheme,
+          onBack: () {
+            // Drops an unsaved theme preview; after Save this is a no-op.
+            _applyTheme(_settings.themeMode);
+            setState(() => _view = _View.home);
+          },
         );
       case _View.about:
         return AboutScreen(onBack: () => setState(() => _view = _View.home));

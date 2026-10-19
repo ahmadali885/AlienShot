@@ -31,7 +31,8 @@ class PillButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = ghost ? AppColors.text : AppColors.onAccent;
+    final palette = AlienPalette.of(context);
+    final foreground = ghost ? palette.text : AppColors.onAccent;
     final padding = compact
         ? const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
         : const EdgeInsets.symmetric(horizontal: 28, vertical: 15);
@@ -73,8 +74,8 @@ class PillButton extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
           child: DecoratedBox(
             decoration: ShapeDecoration(
-              color: AppColors.ghostFill,
-              shape: StadiumBorder(side: BorderSide(color: AppColors.ghostBorder)),
+              color: palette.ghostFill,
+              shape: StadiumBorder(side: BorderSide(color: palette.ghostBorder)),
             ),
             child: button,
           ),

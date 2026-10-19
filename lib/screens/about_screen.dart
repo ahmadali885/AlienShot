@@ -17,13 +17,14 @@ class AboutScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
       appBar: AppWindowBar(
         title: 'About',
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, size: 18, color: AppColors.textSoft),
+          icon: Icon(Icons.arrow_back_rounded, size: 18, color: palette.textSoft),
           onPressed: onBack,
         ),
       ),
@@ -48,18 +49,18 @@ class AboutScreen extends StatelessWidget {
                   const SizedBox(height: 18),
                   const BrandWordmark(fontSize: 22),
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                     'Version $kAppVersion',
-                    style: TextStyle(fontSize: 12, color: AppColors.textSoft),
+                    style: TextStyle(fontSize: 12, color: palette.textSoft),
                   ),
                   const SizedBox(height: 14),
-                  const Text(
+                  Text(
                     'Instant screenshots, quick annotations\nand shareable links.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.text),
+                    style: TextStyle(fontSize: 13, height: 1.4, color: palette.text),
                   ),
                   const SizedBox(height: 18),
-                  const Text('BY ALIENWAVE · TECH SOLUTIONS', style: kEyebrowStyle),
+                  Text('BY ALIENWAVE · TECH SOLUTIONS', style: palette.eyebrow),
                   const SizedBox(height: 14),
                   PillButton.ghost(
                     label: 'alienwavegroup.com',
@@ -68,9 +69,9 @@ class AboutScreen extends StatelessWidget {
                     onPressed: () => launchUrl(Uri.parse('https://alienwavegroup.com')),
                   ),
                   const SizedBox(height: 14),
-                  const Text(
+                  Text(
                     '© 2026 AlienWave. All rights reserved.',
-                    style: TextStyle(fontSize: 11, color: AppColors.textSoft),
+                    style: TextStyle(fontSize: 11, color: palette.textSoft),
                   ),
                 ],
               ),

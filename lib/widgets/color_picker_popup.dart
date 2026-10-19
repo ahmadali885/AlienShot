@@ -47,6 +47,7 @@ class _ColorPickerPopupState extends State<ColorPickerPopup> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     // showDialog doesn't insert a Material ancestor, and without one Flutter
     // falls back to its debug text style (yellow underlines) and InkWell
     // splashes have nothing to paint on.
@@ -63,10 +64,10 @@ class _ColorPickerPopupState extends State<ColorPickerPopup> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Pick a colour',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: palette.text,
                       fontSize: 14,
                       fontWeight: FontWeight.w600),
                 ),
@@ -94,15 +95,15 @@ class _ColorPickerPopupState extends State<ColorPickerPopup> {
                       decoration: BoxDecoration(
                         color: _color,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white54, width: 1.5),
+                        border: Border.all(color: palette.ghostBorder, width: 1.5),
                         boxShadow: glow(_color, alpha: 0.5, blur: 14),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Text(
                       '#${(_color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}',
-                      style: const TextStyle(
-                          color: Colors.white70,
+                      style: TextStyle(
+                          color: palette.textSoft,
                           fontSize: 12,
                           letterSpacing: 1),
                     ),

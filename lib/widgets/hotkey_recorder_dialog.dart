@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 
+import '../theme/app_theme.dart';
+
 /// Keys we allow as the "body" of a custom shortcut. Deliberately excludes
 /// PrintScreen, media keys, arrows, etc. — hotkey_manager's Windows plugin
 /// crashes on keys it can't map to a VK code, and letters/digits/F-keys are
@@ -155,8 +157,8 @@ class _HotKeyRecorderDialogState extends State<_HotKeyRecorderDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return AlertDialog(
-      backgroundColor: const Color(0xFF20232A),
       title: const Text('Record a shortcut'),
       content: Focus(
         focusNode: _focusNode,
@@ -166,28 +168,29 @@ class _HotKeyRecorderDialogState extends State<_HotKeyRecorderDialog> {
           width: 320,
           padding: const EdgeInsets.symmetric(vertical: 24),
           decoration: BoxDecoration(
-            color: Colors.black26,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white12),
+            color: palette.ghostFill,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: palette.glassBorder),
           ),
           child: Column(
             children: [
-              const Icon(Icons.keyboard, color: Colors.white38, size: 28),
+              Icon(Icons.keyboard_rounded, color: palette.accentText, size: 28),
               const SizedBox(height: 14),
               Text(
                 _liveModifiers.isEmpty
                     ? '…'
                     : '${_modifierLabel(_liveModifiers)} + …',
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  fontFamily: AppFonts.display,
+                  color: palette.text,
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 'Press your new shortcut now',
-                style: TextStyle(color: Colors.white54, fontSize: 12),
+                style: TextStyle(color: palette.textSoft, fontSize: 12),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 8),

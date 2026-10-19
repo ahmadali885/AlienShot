@@ -244,7 +244,6 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
         title: const Text('Add text'),
         content: TextField(controller: controller, autofocus: true, onSubmitted: (v) => Navigator.of(context).pop(v)),
         actions: [
@@ -549,16 +548,17 @@ class _Hint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-      decoration: const ShapeDecoration(
-        color: AppColors.surface,
-        shape: StadiumBorder(side: BorderSide(color: AppColors.glassBorder)),
-        shadows: kCardShadow,
+      decoration: ShapeDecoration(
+        color: palette.surface,
+        shape: StadiumBorder(side: BorderSide(color: palette.glassBorder)),
+        shadows: palette.cardShadow,
       ),
       child: Text(
         text,
-        style: const TextStyle(color: AppColors.textSoft, fontSize: 13, fontWeight: FontWeight.w500),
+        style: TextStyle(color: palette.textSoft, fontSize: 13, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -604,6 +604,9 @@ class _FloatingToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
+    // A white ring vanishes on the light glass; use the text colour there.
+    final selectedRing = palette.isLight ? palette.text : Colors.white;
     final fitsBelow = selection.bottom + _barHeight + 12 < screenSize.height;
     final top = fitsBelow ? selection.bottom + 8 : selection.top - _barHeight - 8;
     var left = selection.right - _barWidth;
@@ -641,7 +644,10 @@ class _FloatingToolbar extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: c,
                         shape: BoxShape.circle,
-                        border: Border.all(color: color == c ? Colors.white : Colors.white24, width: color == c ? 2 : 1),
+                        border: Border.all(
+                          color: color == c ? selectedRing : palette.ghostBorder,
+                          width: color == c ? 2 : 1,
+                        ),
                         boxShadow: color == c ? glow(c, alpha: 0.6, blur: 10) : null,
                       ),
                     ),
@@ -653,20 +659,20 @@ class _FloatingToolbar extends StatelessWidget {
                 IconButton(
                   tooltip: 'Undo',
                   iconSize: 18,
-                  icon: const Icon(Icons.undo_rounded, color: AppColors.textSoft),
+                  icon: Icon(Icons.undo_rounded, color: palette.textSoft),
                   onPressed: onUndo,
                 ),
                 const Spacer(),
                 IconButton(
                   tooltip: 'Copy',
                   iconSize: 18,
-                  icon: const Icon(Icons.copy_rounded, color: AppColors.text),
+                  icon: Icon(Icons.copy_rounded, color: palette.text),
                   onPressed: onCopy,
                 ),
                 IconButton(
                   tooltip: 'Save',
                   iconSize: 18,
-                  icon: const Icon(Icons.save_alt_rounded, color: AppColors.text),
+                  icon: Icon(Icons.save_alt_rounded, color: palette.text),
                   onPressed: onSave,
                 ),
                 IconButton(
@@ -674,13 +680,13 @@ class _FloatingToolbar extends StatelessWidget {
                   iconSize: 18,
                   icon: uploading
                       ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.link_rounded, color: AppColors.accent2),
+                      : Icon(Icons.link_rounded, color: palette.accentText),
                   onPressed: uploading ? null : onUpload,
                 ),
                 IconButton(
                   tooltip: 'Close',
                   iconSize: 18,
-                  icon: const Icon(Icons.close_rounded, color: AppColors.textSoft),
+                  icon: Icon(Icons.close_rounded, color: palette.textSoft),
                   onPressed: onClose,
                 ),
               ],
@@ -702,6 +708,7 @@ class _CustomColorButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
     final isCustom = !kAnnotationColors.take(6).contains(color);
     return GestureDetector(
       onTap: () async {
@@ -725,7 +732,10 @@ class _CustomColorButton extends StatelessWidget {
               Color(0xFFFF1744),
             ],
           ),
-          border: Border.all(color: isCustom ? Colors.white : Colors.white24, width: isCustom ? 2 : 1),
+          border: Border.all(
+            color: isCustom ? (palette.isLight ? palette.text : Colors.white) : palette.ghostBorder,
+            width: isCustom ? 2 : 1,
+          ),
         ),
         child: isCustom
             ? Center(
@@ -761,7 +771,7 @@ class _ToolIcon extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: selected ? glow(AppColors.accent, blur: 12, alpha: 0.5) : null,
         ),
-        child: Icon(icon, size: 17, color: selected ? AppColors.onAccent : AppColors.text),
+        child: Icon(icon, size: 17, color: selected ? AppColors.onAccent : AlienPalette.of(context).text),
       ),
     );
   }
@@ -772,7 +782,7 @@ class _BarDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(width: 1, height: 22, color: AppColors.glassBorder);
+    return Container(width: 1, height: 22, color: AlienPalette.of(context).glassBorder);
   }
 }
 
