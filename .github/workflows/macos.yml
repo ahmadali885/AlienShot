@@ -50,8 +50,15 @@ jobs:
           # Otherwise Installer "relocates" the upgrade into any other copy of
           # AlienShot.app it finds (say, one left in Downloads) instead of
           # /Applications.
+          # The analysis lists every bundle inside the app (plugin frameworks
+          # too), in no fixed order, so clear the flag on all of them.
           pkgbuild --analyze --root pkg-root component.plist
-          plutil -replace 0.BundleIsRelocatable -bool NO component.plist
+          i=0
+          while /usr/libexec/PlistBuddy -c "Print :$i" component.plist > /dev/null 2>&1; do
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" component.plist
+            echo "non-relocatable: $(/usr/libexec/PlistBuddy -c "Print :$i:RootRelativeBundlePath" component.plist)"
+            i=$((i + 1))
+          done
 
           pkgbuild --root pkg-root \
             --component-plist component.plist \
