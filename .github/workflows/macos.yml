@@ -34,6 +34,54 @@ jobs:
           cd build/macos/Build/Products/Release
           ditto -c -k --sequesterRsrc --keepParent AlienShot.app AlienShot-macos.zip
 
+      - name: Build the installer package
+        # The macOS counterpart of the Windows setup .exe: an Installer.app
+        # wizard (installer/macos/pkg) that installs into /Applications.
+        run: |
+          APP=build/macos/Build/Products/Release/AlienShot.app
+          VERSION=$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)
+          PKG=installer/macos/pkg
+          mkdir -p pkg-root pkg-build pkg-resources
+          ditto "$APP" pkg-root/AlienShot.app
+
+          # Scripts come from a Windows checkout: make sure they run.
+          for s in "$PKG"/scripts/*; do sed -i '' 's/\r$//' "$s"; chmod +x "$s"; done
+
+          # Otherwise Installer "relocates" the upgrade into any other copy of
+          # AlienShot.app it finds (say, one left in Downloads) instead of
+          # /Applications.
+          pkgbuild --analyze --root pkg-root component.plist
+          plutil -replace 0.BundleIsRelocatable -bool NO component.plist
+
+          pkgbuild --root pkg-root \
+            --component-plist component.plist \
+            --install-location /Applications \
+            --identifier com.alienwavegroup.alienshot \
+            --version "$VERSION" \
+            --scripts "$PKG/scripts" \
+            pkg-build/AlienShot-component.pkg
+
+          cp "$PKG"/resources/*.html pkg-resources/
+          tiffutil -cathidpicheck "$PKG/art/background.png" "$PKG/art/background@2x.png" \
+            -out pkg-resources/background.tiff
+          tiffutil -cathidpicheck "$PKG/art/background-dark.png" "$PKG/art/background-dark@2x.png" \
+            -out pkg-resources/background-dark.tiff
+          sed "s/@VERSION@/$VERSION/" "$PKG/distribution.xml" > distribution.xml
+
+          productbuild --distribution distribution.xml \
+            --resources pkg-resources \
+            --package-path pkg-build \
+            AlienShot-Installer.pkg
+          # Sanity check: the app binary really is in the payload.
+          pkgutil --payload-files pkg-build/AlienShot-component.pkg > payload.txt
+          grep -q 'AlienShot.app/Contents/MacOS/AlienShot$' payload.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlienShot-Installer
+          path: AlienShot-Installer.pkg
+          if-no-files-found: error
+
       - name: Build the DMG
         # The usual drag-to-Applications window. Finder lays it out over
         # AppleScript, which can time out on a CI Mac, so retry a few times and

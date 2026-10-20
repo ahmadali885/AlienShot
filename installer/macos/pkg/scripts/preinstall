@@ -1,0 +1,6 @@
+#!/bin/sh
+# AlienShot lives in the menu bar with no window, so nothing tells the user to
+# quit it first, and replacing the bundle under a running copy leaves the old
+# version running. Close it, like the Windows installer does.
+pkill -x AlienShot 2>/dev/null || true
+exit 0

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Start AlienShot for whoever is signed in, like the Windows installer's
+# "Launch AlienShot" finish step. Installer runs this as root; $2 is the
+# install location (/Applications).
+user=$(stat -f%Su /dev/console)
+if [ -n "$user" ] && [ "$user" != "root" ] && [ "$user" != "loginwindow" ]; then
+  uid=$(id -u "$user")
+  launchctl asuser "$uid" sudo -u "$user" open -a "$2/AlienShot.app" || true
+fi
+exit 0
