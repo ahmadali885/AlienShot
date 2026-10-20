@@ -34,8 +34,55 @@ jobs:
           cd build/macos/Build/Products/Release
           ditto -c -k --sequesterRsrc --keepParent AlienShot.app AlienShot-macos.zip
 
+      - name: Build the DMG
+        # The usual drag-to-Applications window. Finder lays it out over
+        # AppleScript, which can time out on a CI Mac, so retry a few times and
+        # fall back to a plain (unstyled) DMG rather than fail the build.
+        run: |
+          brew install create-dmg
+          APP=build/macos/Build/Products/Release/AlienShot.app
+          mkdir dmg-src
+          ditto "$APP" dmg-src/AlienShot.app
+          # One TIFF holding both resolutions, so Retina screens get the @2x.
+          tiffutil -cathidpicheck installer/macos/dmg-background.png \
+            installer/macos/dmg-background@2x.png -out dmg-background.tiff
+          VOLICON=()
+          ICNS="$APP/Contents/Resources/AppIcon.icns"
+          [ -f "$ICNS" ] && VOLICON=(--volicon "$ICNS")
+          for attempt in 1 2 3; do
+            rm -f AlienShot.dmg rw.*.dmg
+            if create-dmg \
+                --volname "AlienShot" \
+                "${VOLICON[@]}" \
+                --background dmg-background.tiff \
+                --window-pos 200 120 \
+                --window-size 660 400 \
+                --icon-size 112 \
+                --text-size 13 \
+                --icon "AlienShot.app" 170 200 \
+                --hide-extension "AlienShot.app" \
+                --app-drop-link 490 200 \
+                AlienShot.dmg dmg-src/; then
+              break
+            fi
+            echo "create-dmg failed (attempt $attempt)"
+            sleep 5
+          done
+          if [ ! -f AlienShot.dmg ]; then
+            echo "::warning::Styled DMG failed; building a plain one"
+            ln -s /Applications dmg-src/Applications
+            hdiutil create -volname AlienShot -srcfolder dmg-src -ov -format UDZO AlienShot.dmg
+          fi
+          hdiutil verify AlienShot.dmg
+
       - uses: actions/upload-artifact@v4
         with:
           name: AlienShot-macos
           path: build/macos/Build/Products/Release/AlienShot-macos.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlienShot-dmg
+          path: AlienShot.dmg
           if-no-files-found: error
