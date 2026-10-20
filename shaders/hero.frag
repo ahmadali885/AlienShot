@@ -75,9 +75,9 @@ void main() {
   // The dark render mostly spans luminance 0.06–0.22: plenty of contrast
   // against near-black, far too little against white unless stretched.
   float l = dot(dark, vec3(0.2126, 0.7152, 0.0722));
-  vec3 sky = vec3(0.940, 0.970, 1.000);
-  vec3 vein = vec3(0.300, 0.620, 0.910);
-  vec3 light = mix(sky, vein, smoothstep(0.06, 0.22, l));
+  vec3 sky = vec3(0.905, 0.950, 0.995);
+  vec3 vein = vec3(0.200, 0.490, 0.850);
+  vec3 light = mix(sky, vein, smoothstep(0.055, 0.20, l));
   light *= 0.96 + 0.05 * vig;
 
   vec3 col = mix(dark * (0.72 + 0.5 * vig), light, uLight);

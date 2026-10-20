@@ -13,6 +13,8 @@ class HomeScreen extends StatelessWidget {
     this.hotKeyActive = true,
     required this.onCapture,
     required this.onOpenSettings,
+    required this.onOpenAbout,
+    required this.onOpenProfile,
     required this.onQuit,
     required this.onMinimize,
   });
@@ -23,6 +25,8 @@ class HomeScreen extends StatelessWidget {
   final bool hotKeyActive;
   final VoidCallback onCapture;
   final VoidCallback onOpenSettings;
+  final VoidCallback onOpenAbout;
+  final VoidCallback onOpenProfile;
   final VoidCallback onQuit;
   final VoidCallback onMinimize;
 
@@ -32,14 +36,20 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
+      // Settings is reached from the gear beside the shortcut chip.
       appBar: AppWindowBar(
         title: 'AlienShot',
         brand: true,
         actions: [
           IconButton(
-            tooltip: 'Settings',
-            icon: Icon(Icons.tune_rounded, size: 18, color: palette.textSoft),
-            onPressed: onOpenSettings,
+            tooltip: 'About',
+            icon: Icon(Icons.info_outline_rounded, size: 20, color: palette.textSoft),
+            onPressed: onOpenAbout,
+          ),
+          IconButton(
+            tooltip: 'Profile',
+            icon: Icon(Icons.account_circle_rounded, size: 22, color: palette.accentText),
+            onPressed: onOpenProfile,
           ),
         ],
       ),
@@ -47,8 +57,10 @@ class HomeScreen extends StatelessWidget {
         child: Center(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, AppWindowBar.height + 12, 28, 12),
+            // Vertical padding is tight on purpose: the window is 460px tall
+            // and at 30px the column overflowed its card by ~9px.
             child: GlassContainer(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 30),
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 22),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -63,7 +75,7 @@ class HomeScreen extends StatelessWidget {
                     ),
                     child: Image.asset('assets/images/app_logo.png', filterQuality: FilterQuality.medium),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -89,8 +101,19 @@ class HomeScreen extends StatelessWidget {
                     onPressed: onCapture,
                   ),
                   const SizedBox(height: 12),
-                  _ShortcutChip(label: hotKeyLabel, active: hotKeyActive),
-                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ShortcutChip(label: hotKeyLabel, active: hotKeyActive),
+                      const SizedBox(width: 8),
+                      _RoundIconButton(
+                        icon: Icons.settings_rounded,
+                        tooltip: 'Change shortcut',
+                        onPressed: onOpenSettings,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -187,6 +210,37 @@ class _ShortcutChip extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A circular ghost button sized to sit beside the shortcut chip.
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({required this.icon, required this.tooltip, required this.onPressed});
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        type: MaterialType.transparency,
+        shape: CircleBorder(side: BorderSide(color: palette.ghostBorder)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: Ink(
+            width: 32,
+            height: 32,
+            color: palette.ghostFill,
+            child: Icon(icon, size: 16, color: palette.accentText),
+          ),
         ),
       ),
     );

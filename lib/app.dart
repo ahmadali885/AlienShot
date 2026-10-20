@@ -14,6 +14,7 @@ import 'screens/about_screen.dart';
 import 'screens/help_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/lightshot_capture_screen.dart';
+import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/capture_service.dart';
 import 'services/hotkey_availability.dart';
@@ -21,8 +22,9 @@ import 'services/settings_service.dart';
 import 'services/tray_service.dart';
 import 'services/window_focus.dart';
 import 'theme/app_theme.dart';
+import 'widgets/sign_in_dialog.dart';
 
-enum _View { home, settings, capture, about, help }
+enum _View { home, settings, capture, about, help, profile }
 
 /// The active theme choice. Lives above [MaterialApp] so the home state below
 /// it can switch themes, including a live preview from Settings.
@@ -328,23 +330,19 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     await _hideWindow();
   }
 
+  /// Tray "Sign In…": lands on the profile page, where signing in will live.
   Future<void> _showSignInComingSoon() async {
-    await _openWindow(_View.home);
+    await _openWindow(_View.profile);
     if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Sign in'),
-        content: Text(
-          'AlienWave accounts are coming soon — you\'ll be able to sign in '
-          'and keep every upload in one place.',
-          style: TextStyle(color: AlienPalette.of(context).textSoft, height: 1.4),
-        ),
-        actions: [
-          FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK')),
-        ],
-      ),
-    );
+    await showSignInComingSoon(context);
+  }
+
+  /// Saves only the name: going through [_saveSettings] would re-register
+  /// the hotkey and could pop its warning for an unrelated change.
+  Future<void> _renameProfile(String name) async {
+    final settings = _settings.copyWith(displayName: name);
+    setState(() => _settings = settings);
+    await settingsService.save(settings);
   }
 
   /// A left click on the tray icon: dismiss the taskbar's hidden-icons flyout
@@ -428,12 +426,20 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
           hotKeyLabel: resolveHotKeyLabel(_settings),
           onBack: () => setState(() => _view = _View.home),
         );
+      case _View.profile:
+        return ProfileScreen(
+          displayName: _settings.displayName,
+          onRename: _renameProfile,
+          onBack: () => setState(() => _view = _View.home),
+        );
       case _View.home:
         return HomeScreen(
           hotKeyLabel: resolveHotKeyLabel(_settings),
           hotKeyActive: _hotKeyActive,
           onCapture: _captureRegion,
           onOpenSettings: _openSettings,
+          onOpenAbout: () => setState(() => _view = _View.about),
+          onOpenProfile: () => setState(() => _view = _View.profile),
           onQuit: _quit,
           onMinimize: _minimizeToTray,
         );

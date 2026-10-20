@@ -10,10 +10,14 @@ class AppSettings {
     this.customHotKeyModifiers = const [],
     this.customHotKeyLabel,
     this.themeMode = ThemeMode.system,
+    this.displayName = '',
   });
 
   /// Light, dark, or follow the Windows/macOS app theme.
   final ThemeMode themeMode;
+
+  /// Shown on the profile page; empty means "Guest".
+  final String displayName;
 
   final String hotKeyPresetId;
   final bool autoCopyOnCapture;
@@ -43,10 +47,12 @@ class AppSettings {
         (json['customHotKeyModifiers'] as List<dynamic>?)?.cast<String>() ?? const [],
     customHotKeyLabel: json['customHotKeyLabel'] as String?,
     themeMode: ThemeMode.values.asNameMap()[json['themeMode']] ?? ThemeMode.system,
+    displayName: json['displayName'] as String? ?? '',
   );
 
   Map<String, dynamic> toJson() => {
     'themeMode': themeMode.name,
+    'displayName': displayName,
     'hotKeyPresetId': hotKeyPresetId,
     'autoCopyOnCapture': autoCopyOnCapture,
     'autoUploadOnCapture': autoUploadOnCapture,
@@ -65,9 +71,11 @@ class AppSettings {
     List<String>? customHotKeyModifiers,
     String? customHotKeyLabel,
     ThemeMode? themeMode,
+    String? displayName,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
+      displayName: displayName ?? this.displayName,
       hotKeyPresetId: hotKeyPresetId ?? this.hotKeyPresetId,
       autoCopyOnCapture: autoCopyOnCapture ?? this.autoCopyOnCapture,
       autoUploadOnCapture: autoUploadOnCapture ?? this.autoUploadOnCapture,

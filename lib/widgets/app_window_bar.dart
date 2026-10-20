@@ -48,9 +48,19 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
             children: [
               if (leading != null) leading!,
               SizedBox(width: leading == null ? 18 : 4),
-              if (brand)
-                const BrandWordmark()
-              else
+              if (brand) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    'assets/images/app_logo.png',
+                    width: 24,
+                    height: 24,
+                    filterQuality: FilterQuality.medium,
+                  ),
+                ),
+                const SizedBox(width: 9),
+                const BrandWordmark(),
+              ] else
                 Text(
                   title,
                   style: TextStyle(
