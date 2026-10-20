@@ -55,7 +55,8 @@ jobs:
           pkgbuild --analyze --root pkg-root component.plist
           i=0
           while /usr/libexec/PlistBuddy -c "Print :$i" component.plist > /dev/null 2>&1; do
-            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" component.plist
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" component.plist 2> /dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" component.plist
             echo "non-relocatable: $(/usr/libexec/PlistBuddy -c "Print :$i:RootRelativeBundlePath" component.plist)"
             i=$((i + 1))
           done
