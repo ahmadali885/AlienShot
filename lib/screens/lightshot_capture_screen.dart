@@ -167,6 +167,15 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
     });
   }
 
+  /// A drag the system took away (e.g. the window lost the mouse) must not
+  /// leave its zero-size start behind as a stuck dot.
+  void _handleSelectPanCancel() {
+    setState(() {
+      _dragStart = null;
+      _dragCurrent = null;
+    });
+  }
+
   // --- Phase 2: annotating inside the locked selection ---
 
   void _handleAnnotatePanStart(DragStartDetails details) {
@@ -432,14 +441,23 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
               ),
             // Gesture surface: selecting drags the region; annotating draws
             // inside it.
+            //
+            // Keyed because starting a drag makes the selection non-null, which
+            // inserts the annotation layer just before this one. Unkeyed, the
+            // Stack matched children by position, so
+            // this slot was rebuilt as that layer and a new detector created
+            // mid-drag — the drag in progress was dropped and the selection
+            // stuck at a dot until the user dragged a second time.
             if (_phase == _Phase.selecting)
               Positioned.fill(
+                key: const ValueKey('select-surface'),
                 child: MouseRegion(
                   cursor: SystemMouseCursors.precise,
                   child: GestureDetector(
                     onPanStart: _handleSelectPanStart,
                     onPanUpdate: _handleSelectPanUpdate,
                     onPanEnd: _handleSelectPanEnd,
+                    onPanCancel: _handleSelectPanCancel,
                   ),
                 ),
               )

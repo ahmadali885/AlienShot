@@ -195,7 +195,10 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   /// select-and-annotate screen on top of it — like Lightshot, never the
   /// OS Snipping Tool and never a separate editor window.
   Future<void> _captureRegion() async {
-    if (_capturing) return;
+    // Also ignore the shortcut while the overlay is up: the hotkey isn't
+    // registered with MOD_NOREPEAT, so holding the key a moment too long fires
+    // it again, which hid the overlay mid-drag to take a fresh capture.
+    if (_capturing || _view == _View.capture) return;
     _capturing = true;
     try {
       // On macOS a capture without Screen Recording permission silently
