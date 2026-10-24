@@ -51,7 +51,6 @@ class AlienPalette extends ThemeExtension<AlienPalette> {
     required this.ghostFill,
     required this.ghostBorder,
     required this.activeFill,
-    required this.cardShadow,
   });
 
   final bool isLight;
@@ -71,7 +70,6 @@ class AlienPalette extends ThemeExtension<AlienPalette> {
   final Color ghostFill;
   final Color ghostBorder;
   final Color activeFill;
-  final List<BoxShadow> cardShadow;
 
   static const dark = AlienPalette(
     isLight: false,
@@ -86,8 +84,6 @@ class AlienPalette extends ThemeExtension<AlienPalette> {
     ghostFill: Color(0x0DFFFFFF), // ghost button: rgba(255,255,255,.05)
     ghostBorder: Color(0x42FFFFFF), // rgba(255,255,255,.26)
     activeFill: Color(0x21FFFFFF), // active nav item: rgba(255,255,255,.13)
-    // --shadow: 0 30px 70px -28px rgba(0,64,78,.5)
-    cardShadow: [BoxShadow(color: Color(0x8000404E), blurRadius: 70, spreadRadius: -28, offset: Offset(0, 30))],
   );
 
   static const light = AlienPalette(
@@ -104,8 +100,6 @@ class AlienPalette extends ThemeExtension<AlienPalette> {
     ghostFill: Color(0x0A0D2A31),
     ghostBorder: Color(0x330D2A31),
     activeFill: Color(0x140D2A31),
-    // --shadow-sm: 0 14px 40px -16px rgba(0,64,78,.4)
-    cardShadow: [BoxShadow(color: Color(0x6600404E), blurRadius: 40, spreadRadius: -16, offset: Offset(0, 14))],
   );
 
   static AlienPalette of(BuildContext context) => Theme.of(context).extension<AlienPalette>()!;

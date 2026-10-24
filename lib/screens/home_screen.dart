@@ -66,14 +66,11 @@ class HomeScreen extends StatelessWidget {
                 children: [
                   // Same artwork as the app/taskbar icon: the AlienWave alien
                   // inside capture-frame corners.
-                  Container(
+                  Image.asset(
+                    'assets/images/app_logo.png',
                     width: 64,
                     height: 64,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: kAccentGlow,
-                    ),
-                    child: Image.asset('assets/images/app_logo.png', filterQuality: FilterQuality.medium),
+                    filterQuality: FilterQuality.medium,
                   ),
                   const SizedBox(height: 16),
                   Row(

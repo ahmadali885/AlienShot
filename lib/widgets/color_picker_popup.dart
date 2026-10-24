@@ -57,7 +57,6 @@ class _ColorPickerPopupState extends State<ColorPickerPopup> {
         child: GlassContainer(
           padding: const EdgeInsets.all(16),
           borderRadius: 22,
-          withGlow: true,
           child: SizedBox(
             width: _panelWidth,
             child: Column(

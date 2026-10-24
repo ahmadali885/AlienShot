@@ -33,18 +33,16 @@ class AboutScreen extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, AppWindowBar.height + 12, 28, 12),
             child: GlassContainer(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+              // 28px overflowed the 460px window by 8px.
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
+                  Image.asset(
+                    'assets/images/app_logo.png',
                     width: 64,
                     height: 64,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: kAccentGlow,
-                    ),
-                    child: Image.asset('assets/images/app_logo.png', filterQuality: FilterQuality.medium),
+                    filterQuality: FilterQuality.medium,
                   ),
                   const SizedBox(height: 18),
                   const BrandWordmark(fontSize: 22),

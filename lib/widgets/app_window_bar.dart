@@ -18,9 +18,13 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
     this.leading,
     this.actions = const [],
     this.brand = false,
+    this.titleWidget,
   });
 
   final String title;
+
+  /// Shown in place of the plain [title] text, e.g. a row of tabs.
+  final Widget? titleWidget;
   final Widget? leading;
   final List<Widget> actions;
 
@@ -60,7 +64,9 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
                 const SizedBox(width: 9),
                 const BrandWordmark(),
-              ] else
+              ] else if (titleWidget != null)
+                titleWidget!
+              else
                 Text(
                   title,
                   style: TextStyle(

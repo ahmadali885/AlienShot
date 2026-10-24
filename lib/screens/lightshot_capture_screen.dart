@@ -572,7 +572,6 @@ class _Hint extends StatelessWidget {
       decoration: ShapeDecoration(
         color: palette.surface,
         shape: StadiumBorder(side: BorderSide(color: palette.glassBorder)),
-        shadows: palette.cardShadow,
       ),
       child: Text(
         text,
@@ -636,7 +635,6 @@ class _FloatingToolbar extends StatelessWidget {
       // Pill-shaped like the site's nav group: radius = half the bar height.
       child: GlassContainer(
         borderRadius: _barHeight / 2,
-        withGlow: true,
         child: SizedBox(
           width: _barWidth,
           height: _barHeight,

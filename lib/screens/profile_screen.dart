@@ -133,7 +133,6 @@ class _Avatar extends StatelessWidget {
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
         gradient: AppColors.accentGradient,
-        boxShadow: kAccentGlow,
       ),
       child: Container(
         decoration: const BoxDecoration(
