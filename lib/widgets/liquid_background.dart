@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../theme/app_theme.dart';
 
@@ -17,17 +17,28 @@ class LiquidBackground extends StatefulWidget {
   State<LiquidBackground> createState() => _LiquidBackgroundState();
 }
 
-class _LiquidBackgroundState extends State<LiquidBackground> with SingleTickerProviderStateMixin {
+class _LiquidBackgroundState extends State<LiquidBackground> {
   /// Compiled once and shared — the home and settings screens both use it.
   static Future<ui.FragmentProgram>? _program;
 
+  /// A timer rather than a Ticker: a Ticker produces a frame on every vsync,
+  /// and each frame re-blurs every glass panel — on a 144 Hz display that kept
+  /// the open window at several percent CPU. The drift is slow enough that
+  /// 30 fps looks the same.
+  static const Duration _frameInterval = Duration(milliseconds: 33);
+
   ui.FragmentShader? _shader;
-  late final Ticker _ticker = createTicker(_onTick);
+  Timer? _timer;
+  final Stopwatch _clock = Stopwatch();
   final ValueNotifier<double> _time = ValueNotifier(_staticTime);
   Size _size = Size.zero;
   Offset? _cursor;
   Offset? _eased;
   bool _reduceMotion = false;
+
+  /// False while the window is hidden (the app wraps its screens in a
+  /// disabled [TickerMode] then), so nothing renders in the tray.
+  bool _tickersEnabled = true;
 
   /// The frame the site renders when the visitor prefers reduced motion.
   static const double _staticTime = 12;
@@ -50,30 +61,35 @@ class _LiquidBackgroundState extends State<LiquidBackground> with SingleTickerPr
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _tickersEnabled = TickerMode.valuesOf(context).enabled;
     _syncTicker();
   }
 
   void _syncTicker() {
-    final shouldRun = _shader != null && !_reduceMotion;
-    if (shouldRun && !_ticker.isActive) {
-      _ticker.start();
-    } else if (!shouldRun && _ticker.isActive) {
-      _ticker.stop();
-      _time.value = _staticTime;
+    final shouldRun = _shader != null && !_reduceMotion && _tickersEnabled;
+    if (shouldRun && _timer == null) {
+      _clock.start();
+      _timer = Timer.periodic(_frameInterval, (_) => _onTick());
+    } else if (!shouldRun && _timer != null) {
+      _timer!.cancel();
+      _timer = null;
+      _clock.stop();
+      if (_reduceMotion) _time.value = _staticTime;
     }
   }
 
-  void _onTick(Duration elapsed) {
-    // Same easing as the site: close 5% of the gap to the cursor each frame.
+  void _onTick() {
+    // Same easing as the site: close a share of the gap to the cursor each
+    // frame (5% at 60 fps, so twice that at this rate).
     final target = _cursor ?? _size.center(Offset.zero);
     final eased = _eased ?? target;
-    _eased = eased + (target - eased) * 0.05;
-    _time.value = elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    _eased = eased + (target - eased) * 0.1;
+    _time.value = _clock.elapsedMicroseconds / Duration.microsecondsPerSecond;
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _timer?.cancel();
     _time.dispose();
     _shader?.dispose();
     super.dispose();

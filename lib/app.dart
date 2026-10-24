@@ -18,6 +18,7 @@ import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/capture_service.dart';
 import 'services/hotkey_availability.dart';
+import 'services/memory_trim.dart';
 import 'services/settings_service.dart';
 import 'services/tray_service.dart';
 import 'services/window_focus.dart';
@@ -119,6 +120,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     windowManager.removeListener(this);
     trayManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
+    _trimTimer?.cancel();
     hotKeyManager.unregisterAll();
     super.dispose();
   }
@@ -155,6 +157,19 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   Future<void> _hideWindow() async {
     if (mounted) setState(() => _windowVisible = false);
     await windowManager.hide();
+    _scheduleTrim();
+  }
+
+  Timer? _trimTimer;
+
+  /// Gives the engine a moment to drop the hidden window's frames and the
+  /// capture image first, so there's memory to give back; skipped if the
+  /// window came back meanwhile (a capture hides it only briefly).
+  void _scheduleTrim() {
+    _trimTimer?.cancel();
+    _trimTimer = Timer(const Duration(seconds: 2), () {
+      if (!_windowVisible) trimWorkingSet();
+    });
   }
 
   /// Returns false when the shortcut is already owned by another program.

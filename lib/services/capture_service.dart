@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
@@ -72,17 +71,20 @@ class CaptureService {
       );
       if (rows == 0) return null;
 
-      final pixels = Uint8List.fromList(buffer.asTypedList(byteCount));
       // BitBlt from the screen leaves the alpha byte at zero, which would make
       // the whole frame render fully transparent — force every pixel opaque.
-      final words = pixels.buffer.asUint32List();
+      // Done in place: copying the frame onto the Dart heap first cost another
+      // 8 MB (33 MB at 4K) per capture that lingered until a GC.
+      final words = buffer.cast<Uint32>().asTypedList(width * height);
       for (var i = 0; i < words.length; i++) {
         words[i] |= 0xFF000000;
       }
 
+      // The engine copies the pixels while decoding; the buffer is freed
+      // below only after the decode has completed.
       final completer = Completer<ui.Image>();
       ui.decodeImageFromPixels(
-        pixels,
+        buffer.asTypedList(byteCount),
         width,
         height,
         ui.PixelFormat.bgra8888,
