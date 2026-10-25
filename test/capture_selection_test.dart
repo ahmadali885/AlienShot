@@ -46,6 +46,17 @@ void main() {
     expect(find.byTooltip('Copy'), findsOneWidget);
   });
 
+  testWidgets('with no tool picked, dragging inside the selection moves it', variant: _windows, (tester) async {
+    await pumpOverlay(tester);
+    await drag(tester, const Offset(100, 100), const Offset(900, 500));
+    // The toolbar is anchored to the selection's bottom-right corner.
+    final before = tester.getCenter(find.byTooltip('Copy'));
+
+    await drag(tester, const Offset(400, 300), const Offset(500, 360));
+
+    expect(tester.getCenter(find.byTooltip('Copy')) - before, const Offset(100, 60));
+  });
+
   testWidgets('a click without a drag leaves no stuck selection', variant: _windows, (tester) async {
     await pumpOverlay(tester);
     final gesture = await tester.startGesture(const Offset(200, 200), kind: PointerDeviceKind.mouse);

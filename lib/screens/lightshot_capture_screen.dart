@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -25,12 +26,18 @@ class LightshotCaptureScreen extends StatefulWidget {
     super.key,
     required this.screenImage,
     required this.onClose,
+    this.downscaleRetina = false,
   });
 
   /// Already-decoded frame — the capture service hands over a [ui.Image]
   /// directly so the overlay can paint on its very first frame.
   final ui.Image screenImage;
   final VoidCallback onClose;
+
+  /// Export at the screen's point size rather than its pixel size, so a 2x
+  /// Retina capture isn't twice as big as what was on screen (Lightshot's
+  /// "Downscale Retina screens").
+  final bool downscaleRetina;
 
   @override
   State<LightshotCaptureScreen> createState() => _LightshotCaptureScreenState();
@@ -46,7 +53,10 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
 
   final List<Annotation> _annotations = [];
   Annotation? _draft;
-  AnnotationTool _tool = AnnotationTool.rectangle;
+  /// Nothing is picked at first, as in Lightshot: until a tool is chosen,
+  /// dragging inside the selection moves it instead of drawing.
+  AnnotationTool? _tool;
+  bool _movingSelection = false;
   Color _color = Colors.red;
   double _strokeWidth = 4;
   bool _uploading = false;
@@ -179,14 +189,19 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   // --- Phase 2: annotating inside the locked selection ---
 
   void _handleAnnotatePanStart(DragStartDetails details) {
-    if (_tool == AnnotationTool.text) return;
+    final tool = _tool;
+    if (tool == null) {
+      _movingSelection = true;
+      return;
+    }
+    if (tool == AnnotationTool.text) return;
     final point = _localToAbsolute(details.localPosition);
     setState(() {
-      switch (_tool) {
+      switch (tool) {
         case AnnotationTool.rectangle:
         case AnnotationTool.arrow:
           _draft = ShapeAnnotation(
-            tool: _tool,
+            tool: tool,
             start: point,
             end: point,
             color: _color,
@@ -211,6 +226,10 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   }
 
   void _handleAnnotatePanUpdate(DragUpdateDetails details) {
+    if (_movingSelection) {
+      _moveSelection(details.delta, MediaQuery.of(context).size);
+      return;
+    }
     if (_draft == null) return;
     final point = _localToAbsolute(details.localPosition);
     setState(() {
@@ -224,11 +243,25 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   }
 
   void _handleAnnotatePanEnd(DragEndDetails details) {
+    if (_movingSelection) {
+      _movingSelection = false;
+      return;
+    }
     if (_draft == null) return;
     setState(() {
       _annotations.add(_draft!);
       _draft = null;
     });
+  }
+
+  /// Slides the whole selection, kept on screen. Annotations stay where they
+  /// were drawn (they're in screen space), as they do when resizing.
+  void _moveSelection(Offset delta, Size screenSize) {
+    final current = _selection;
+    if (current == null) return;
+    final dx = delta.dx.clamp(-current.left, screenSize.width - current.right);
+    final dy = delta.dy.clamp(-current.top, screenSize.height - current.bottom);
+    setState(() => _selection = current.shift(Offset(dx, dy)));
   }
 
   Future<void> _handleAnnotateTapUp(TapUpDetails details) async {
@@ -282,7 +315,8 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   }
 
   /// Renders the locked selection (background crop + annotations) at native
-  /// physical-pixel resolution, regardless of the display's DPI scale.
+  /// physical-pixel resolution, regardless of the display's DPI scale —
+  /// unless [LightshotCaptureScreen.downscaleRetina] asks for point size.
   Future<Uint8List> _renderFinal() async {
     final image = widget.screenImage;
     final selection = _selection!;
@@ -298,8 +332,12 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
       selection.height * scaleY,
     ).intersect(Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()));
 
-    final outW = physicalRect.width.round();
-    final outH = physicalRect.height.round();
+    // Output pixels per logical pixel: the capture's own density, or 1 when
+    // downscaling a Retina capture to what was seen on screen.
+    final outScaleX = widget.downscaleRetina ? 1.0 : scaleX;
+    final outScaleY = widget.downscaleRetina ? 1.0 : scaleY;
+    final outW = (physicalRect.width / scaleX * outScaleX).round();
+    final outH = (physicalRect.height / scaleY * outScaleY).round();
 
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
@@ -309,17 +347,16 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
       image,
       physicalRect,
       Rect.fromLTWH(0, 0, outW.toDouble(), outH.toDouble()),
-      Paint(),
+      Paint()..filterQuality = FilterQuality.medium,
     );
 
     // Annotations are recorded in absolute logical screen space — shift
-    // back to selection-local before scaling up to the final physical-pixel
-    // crop resolution.
+    // back to selection-local before scaling to the output resolution.
     Offset map(Offset p) => Offset(
-          (p.dx - selection.left) * scaleX,
-          (p.dy - selection.top) * scaleY,
+          (p.dx - selection.left) * outScaleX,
+          (p.dy - selection.top) * outScaleY,
         );
-    final remapped = _annotations.map((a) => _remapAnnotation(a, map, scaleX)).toList();
+    final remapped = _annotations.map((a) => _remapAnnotation(a, map, outScaleX)).toList();
 
     final painter = AnnotationPainter(annotations: remapped);
     painter.paintShapesOnly(canvas);
@@ -467,17 +504,24 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                 top: selection.top,
                 width: selection.width,
                 height: selection.height,
-                child: GestureDetector(
-                  // Required: without it the detector defers to its child, and
-                  // a childless SizedBox isn't hit-testable — every drag fell
-                  // through to the annotation CustomPaint below, which absorbs
-                  // hits by default, so no annotation could ever be drawn.
-                  behavior: HitTestBehavior.opaque,
-                  onPanStart: _handleAnnotatePanStart,
-                  onPanUpdate: _handleAnnotatePanUpdate,
-                  onPanEnd: _handleAnnotatePanEnd,
-                  onTapUp: _handleAnnotateTapUp,
-                  child: const SizedBox.expand(),
+                child: MouseRegion(
+                  cursor: _tool == null ? SystemMouseCursors.move : SystemMouseCursors.precise,
+                  child: GestureDetector(
+                    // Required: without it the detector defers to its child, and
+                    // a childless SizedBox isn't hit-testable — every drag fell
+                    // through to the annotation CustomPaint below, which absorbs
+                    // hits by default, so no annotation could ever be drawn.
+                    behavior: HitTestBehavior.opaque,
+                    // Start at the press point: a shape begins exactly where
+                    // the user clicked, and a moved selection keeps up with
+                    // the mouse from the first pixel.
+                    dragStartBehavior: DragStartBehavior.down,
+                    onPanStart: _handleAnnotatePanStart,
+                    onPanUpdate: _handleAnnotatePanUpdate,
+                    onPanEnd: _handleAnnotatePanEnd,
+                    onTapUp: _handleAnnotateTapUp,
+                    child: const SizedBox.expand(),
+                  ),
                 ),
               ),
             if (selection == null)
@@ -503,7 +547,8 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                 color: _color,
                 strokeWidth: _strokeWidth,
                 uploading: _uploading,
-                onToolChanged: (t) => setState(() => _tool = t),
+                // Picking the active tool again puts it down (back to moving).
+                onToolChanged: (t) => setState(() => _tool = _tool == t ? null : t),
                 onColorChanged: (c) => setState(() => _color = c),
                 onStrokeWidthChanged: (w) => setState(() => _strokeWidth = w),
                 onUndo: _undo,
@@ -602,7 +647,7 @@ class _FloatingToolbar extends StatelessWidget {
 
   final Rect selection;
   final Size screenSize;
-  final AnnotationTool tool;
+  final AnnotationTool? tool;
   final Color color;
   final double strokeWidth;
   final bool uploading;
