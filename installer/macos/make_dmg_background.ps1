@@ -98,6 +98,8 @@ function Glyphs($g, $text, $font, $brush, $x, $y, $spacing, [bool]$draw) {
   $fmt = [System.Drawing.StringFormat]::GenericTypographic
   foreach ($ch in $text.ToCharArray()) {
     $s = [string]$ch
+    # A lone space measures zero wide (trailing whitespace is trimmed).
+    if ($s -eq ' ') { $x += $font.Size * 0.3 + $spacing; continue }
     if ($draw) { $g.DrawString($s, $font, $brush, $x, $y, $fmt) }
     $x += $g.MeasureString($s, $font, 1000, $fmt).Width + $spacing
   }
@@ -124,50 +126,98 @@ function Render($scale, $out) {
   $g.TextRenderingHint = 'AntiAliasGridFit'
   $g.ScaleTransform($scale, $scale)
 
-  # Wordmark, as in the app's title bar: white "ALIEN", accent "SHOT".
-  $wfont = New-Object System.Drawing.Font $outfitXB, 30, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
-  $track = 30 * 0.08
-  $total = (Glyphs $g 'ALIENSHOT' $wfont $null 0 0 $track $false) - $track
-  $x = ($W - $total) / 2
-  $x = Glyphs $g 'ALIEN' $wfont ([System.Drawing.Brushes]::White) $x 30 $track $true
-  [void](Glyphs $g 'SHOT' $wfont (New-Object System.Drawing.SolidBrush (C '#3FBCC9')) $x 30 $track $true)
+  # Header: the app icon beside the wordmark (white "ALIEN", accent "SHOT"),
+  # as in the app's title bar, then a small eyebrow like the site's.
+  $wfont = New-Object System.Drawing.Font $outfitXB, 26, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+  $track = 26 * 0.08
+  $wordW = (Glyphs $g 'ALIENSHOT' $wfont $null 0 0 $track $false) - $track
+  $logoSize = 34; $gap = 12
+  $x0 = ($W - ($logoSize + $gap + $wordW)) / 2
+  $logo = [System.Drawing.Image]::FromFile("$Root\assets\images\app_logo.png")
+  $g.InterpolationMode = 'HighQualityBicubic'
+  $g.DrawImage($logo, [single]$x0, [single]26, [single]$logoSize, [single]$logoSize)
+  $logo.Dispose()
+  $x = Glyphs $g 'ALIEN' $wfont ([System.Drawing.Brushes]::White) ($x0 + $logoSize + $gap) 28 $track $true
+  [void](Glyphs $g 'SHOT' $wfont (New-Object System.Drawing.SolidBrush (C '#3FBCC9')) $x 28 $track $true)
+
+  $eyebrow = New-Object System.Drawing.Font $urbanSemi, 11, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+  $ebTrack = 11 * 0.16
+  $ebW = (Glyphs $g 'DRAG TO INSTALL' $eyebrow $null 0 0 $ebTrack $false) - $ebTrack
+  [void](Glyphs $g 'DRAG TO INSTALL' $eyebrow (New-Object System.Drawing.SolidBrush (C '#8FB3BC')) (($W - $ebW) / 2) 72 $ebTrack $true)
 
   $center = New-Object System.Drawing.StringFormat
   $center.Alignment = 'Center'
-  $sub = New-Object System.Drawing.Font $urbanMed, 15, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
-  $g.DrawString('Drag AlienShot into your Applications folder', $sub, (New-Object System.Drawing.SolidBrush (C '#8FB3BC')), (New-Object System.Drawing.RectangleF 0, 76, $W, 24), $center)
 
   # Glass card holding the two icons. Finder draws the icon names itself, in
   # black (light mode) or white (dark mode), and they sit on this card — so
   # it's a mid-tone teal both read on (~4.5:1 either way), unlike the app's
   # near-black glass.
-  $card = RoundRect 70 112 520 190 24
-  $shadow = RoundRect 70 122 520 190 24
+  $card = RoundRect 70 100 520 204 26
+  $shadow = RoundRect 70 110 520 204 26
   $g.FillPath((New-Object System.Drawing.SolidBrush (C '#000000' 70)), $shadow)
   # Brushes span a little past the card: GDI+ tiles a gradient beyond its end
   # points, which showed up as hard bands across the card.
-  $span = New-Object System.Drawing.RectangleF 70, 110, 520, 196
+  $span = New-Object System.Drawing.RectangleF 70, 98, 520, 210
   $fill = New-Object System.Drawing.Drawing2D.LinearGradientBrush $span, (C '#2A6A77' 238), (C '#3B8896' 238), 90
   $g.FillPath($fill, $card)
   $sheen = New-Object System.Drawing.Drawing2D.LinearGradientBrush $span, (C '#FFFFFF' 26), (C '#FFFFFF' 0), 90
   $blend = New-Object System.Drawing.Drawing2D.ColorBlend 3
-  $blend.Colors = @((C '#FFFFFF' 28), (C '#FFFFFF' 0), (C '#FFFFFF' 0))
+  $blend.Colors = @((C '#FFFFFF' 30), (C '#FFFFFF' 0), (C '#FFFFFF' 0))
   $blend.Positions = @([single]0, [single]0.45, [single]1)
   $sheen.InterpolationColors = $blend
   $g.FillPath($sheen, $card)
-  $g.DrawPath((New-Object System.Drawing.Pen (C '#FFFFFF' 60), 1), $card)
+  $g.DrawPath((New-Object System.Drawing.Pen (C '#FFFFFF' 64), 1), $card)
 
-  # Dotted drag path from the app towards Applications, then a chevron.
-  $ay = 200
-  $n = 9
-  for ($i = 0; $i -lt $n; $i++) {
-    $t = $i / ($n - 1)
-    $cx = 254 + $i * 16
-    $g.FillEllipse((New-Object System.Drawing.SolidBrush (C '#FFFFFF' ([int](70 + 185 * $t)))), [single]($cx - 3), [single]($ay - 3), 6, 6)
+  # The app sits in a capture frame — the corner brackets of the logo and of
+  # a selection in the app itself. Finder centres the icon on (170, 200).
+  $bracket = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 3.5
+  $bracket.StartCap = 'Round'; $bracket.EndCap = 'Round'; $bracket.LineJoin = 'Round'
+  $l = 110; $t = 140; $r = 230; $b = 258; $arm = 22
+  foreach ($c in @(@($l, $t, 1, 1), @($r, $t, -1, 1), @($l, $b, 1, -1), @($r, $b, -1, -1))) {
+    $cx = [single]$c[0]; $cy = [single]$c[1]; $sx = $c[2]; $sy = $c[3]
+    $g.DrawLines($bracket, [System.Drawing.PointF[]]@(
+      (New-Object System.Drawing.PointF $cx, ($cy + $sy * $arm)),
+      (New-Object System.Drawing.PointF $cx, $cy),
+      (New-Object System.Drawing.PointF ($cx + $sx * $arm), $cy)))
   }
-  $head = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 5
-  $head.StartCap = 'Round'; $head.EndCap = 'Round'; $head.LineJoin = 'Round'
-  $g.DrawLines($head, [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF 396, ($ay - 14)), (New-Object System.Drawing.PointF 410, $ay), (New-Object System.Drawing.PointF 396, ($ay + 14))))
+
+  # A dashed drop zone around Applications (centred on (490, 200)).
+  $zone = RoundRect 430 140 120 118 22
+  $dash = New-Object System.Drawing.Pen (C '#FFFFFF' 150), 2
+  $dash.DashPattern = @([single]3, [single]3)
+  $dash.DashCap = 'Round'
+  $g.DrawPath($dash, $zone)
+
+  # A glowing arc from the frame to the drop zone, ending in a chevron that
+  # follows the curve.
+  $p0 = New-Object System.Drawing.PointF 250, 196
+  $c1 = New-Object System.Drawing.PointF 292, 168
+  $c2 = New-Object System.Drawing.PointF 366, 168
+  $p3 = New-Object System.Drawing.PointF 404, 196
+  foreach ($glowLayer in @(@(16, 22), @(10, 40), @(6, 70))) {
+    $glowPen = New-Object System.Drawing.Pen (C '#3FBCC9' $glowLayer[1]), $glowLayer[0]
+    $glowPen.StartCap = 'Round'; $glowPen.EndCap = 'Round'
+    $g.DrawBezier($glowPen, $p0, $c1, $c2, $p3)
+  }
+  $arcBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.RectangleF 246, 160, 164, 40), (C '#BDEFF4'), ([System.Drawing.Color]::White), 0
+  $arc = New-Object System.Drawing.Pen $arcBrush, 4
+  $arc.StartCap = 'Round'; $arc.EndCap = 'Round'
+  $g.DrawBezier($arc, $p0, $c1, $c2, $p3)
+  # Chevron along the end tangent (p3 - c2).
+  $dx = $p3.X - $c2.X; $dy = $p3.Y - $c2.Y; $len = [Math]::Sqrt($dx * $dx + $dy * $dy)
+  $ux = $dx / $len; $uy = $dy / $len
+  $headLen = 15; $spread = 36 * [Math]::PI / 180
+  $tip = New-Object System.Drawing.PointF ($p3.X + $ux * 3), ($p3.Y + $uy * 3)
+  # Each arm: the backwards direction (-u) rotated by ±spread.
+  $arms = foreach ($s in @(-1, 1)) {
+    $cos = [Math]::Cos($s * $spread); $sin = [Math]::Sin($s * $spread)
+    $bx = (-$ux) * $cos - (-$uy) * $sin
+    $by = (-$ux) * $sin + (-$uy) * $cos
+    New-Object System.Drawing.PointF ($tip.X + $bx * $headLen), ($tip.Y + $by * $headLen)
+  }
+  $headPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 4.5
+  $headPen.StartCap = 'Round'; $headPen.EndCap = 'Round'; $headPen.LineJoin = 'Round'
+  $g.DrawLines($headPen, [System.Drawing.PointF[]]@($arms[0], $tip, $arms[1]))
 
   # First-launch tip: the app isn't notarised, so Gatekeeper stops it once.
   $tipBold = New-Object System.Drawing.Font $urbanSemi, 12, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
