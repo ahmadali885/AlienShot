@@ -58,9 +58,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _draft = _draft.copyWith(
         hotKeyPresetId: kCustomHotKeyPresetId,
-        customHotKeyKeyId: recorded.key.keyId,
+        customHotKeyUsage: recorded.key.usbHidUsage,
         customHotKeyModifiers: recorded.modifiers.map((m) => m.name).toList(),
-        customHotKeyLabel: recorded.label,
       );
     });
   }
@@ -138,9 +137,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: Row(
                 children: [
                   Text(
-                    _draft.hotKeyPresetId == kCustomHotKeyPresetId
-                        ? (_draft.customHotKeyLabel ?? 'Custom')
-                        : 'Custom…',
+                    recordedHotKeyLabel(_draft) ?? 'Custom…',
                     style: const TextStyle(fontSize: 13),
                   ),
                   const Spacer(),
@@ -153,13 +150,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       visualDensity: VisualDensity.compact,
                     ),
                     child: Text(
-                      _draft.customHotKeyKeyId == null ? 'Record' : 'Change',
+                      hasCustomHotKey(_draft) ? 'Change' : 'Record',
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
                 ],
               ),
-              onChanged: _draft.customHotKeyKeyId == null
+              onChanged: !hasCustomHotKey(_draft)
                   ? null
                   : (value) {
                       setState(() => _draft = _draft.copyWith(hotKeyPresetId: value));

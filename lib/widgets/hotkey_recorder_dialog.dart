@@ -1,49 +1,46 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:uni_platform/uni_platform.dart';
 
+import '../models/hotkey_preset.dart';
 import '../theme/app_theme.dart';
 
-/// Keys we allow as the "body" of a custom shortcut. Deliberately excludes
-/// PrintScreen, media keys, arrows, etc. — hotkey_manager's Windows plugin
-/// crashes on keys it can't map to a VK code, and letters/digits/F-keys are
-/// always safe (see README).
-final List<LogicalKeyboardKey> kAllowedHotKeyBodyKeys = [
-  for (final k in [
-    LogicalKeyboardKey.keyA, LogicalKeyboardKey.keyB, LogicalKeyboardKey.keyC,
-    LogicalKeyboardKey.keyD, LogicalKeyboardKey.keyE, LogicalKeyboardKey.keyF,
-    LogicalKeyboardKey.keyG, LogicalKeyboardKey.keyH, LogicalKeyboardKey.keyI,
-    LogicalKeyboardKey.keyJ, LogicalKeyboardKey.keyK, LogicalKeyboardKey.keyL,
-    LogicalKeyboardKey.keyM, LogicalKeyboardKey.keyN, LogicalKeyboardKey.keyO,
-    LogicalKeyboardKey.keyP, LogicalKeyboardKey.keyQ, LogicalKeyboardKey.keyR,
-    LogicalKeyboardKey.keyS, LogicalKeyboardKey.keyT, LogicalKeyboardKey.keyU,
-    LogicalKeyboardKey.keyV, LogicalKeyboardKey.keyW, LogicalKeyboardKey.keyX,
-    LogicalKeyboardKey.keyY, LogicalKeyboardKey.keyZ,
-    LogicalKeyboardKey.digit0, LogicalKeyboardKey.digit1, LogicalKeyboardKey.digit2,
-    LogicalKeyboardKey.digit3, LogicalKeyboardKey.digit4, LogicalKeyboardKey.digit5,
-    LogicalKeyboardKey.digit6, LogicalKeyboardKey.digit7, LogicalKeyboardKey.digit8,
-    LogicalKeyboardKey.digit9,
-    LogicalKeyboardKey.f1, LogicalKeyboardKey.f2, LogicalKeyboardKey.f3,
-    LogicalKeyboardKey.f4, LogicalKeyboardKey.f5, LogicalKeyboardKey.f6,
-    LogicalKeyboardKey.f7, LogicalKeyboardKey.f8, LogicalKeyboardKey.f9,
-    LogicalKeyboardKey.f10, LogicalKeyboardKey.f11, LogicalKeyboardKey.f12,
-  ])
-    k,
-];
+/// Keys that may be a shortcut on their own. Anything else types text or
+/// moves the caret, so claiming it system-wide without a modifier would break
+/// normal typing everywhere.
+final Set<PhysicalKeyboardKey> _kStandaloneKeys = {
+  PhysicalKeyboardKey.f1, PhysicalKeyboardKey.f2, PhysicalKeyboardKey.f3,
+  PhysicalKeyboardKey.f4, PhysicalKeyboardKey.f5, PhysicalKeyboardKey.f6,
+  PhysicalKeyboardKey.f7, PhysicalKeyboardKey.f8, PhysicalKeyboardKey.f9,
+  PhysicalKeyboardKey.f10, PhysicalKeyboardKey.f11, PhysicalKeyboardKey.f12,
+  PhysicalKeyboardKey.f13, PhysicalKeyboardKey.f14, PhysicalKeyboardKey.f15,
+  PhysicalKeyboardKey.f16, PhysicalKeyboardKey.f17, PhysicalKeyboardKey.f18,
+  PhysicalKeyboardKey.f19, PhysicalKeyboardKey.f20, PhysicalKeyboardKey.f21,
+  PhysicalKeyboardKey.f22, PhysicalKeyboardKey.f23, PhysicalKeyboardKey.f24,
+  PhysicalKeyboardKey.printScreen, PhysicalKeyboardKey.pause,
+  PhysicalKeyboardKey.scrollLock, PhysicalKeyboardKey.insert,
+};
 
-final Set<LogicalKeyboardKey> _kFunctionKeys = {
-  LogicalKeyboardKey.f1, LogicalKeyboardKey.f2, LogicalKeyboardKey.f3,
-  LogicalKeyboardKey.f4, LogicalKeyboardKey.f5, LogicalKeyboardKey.f6,
-  LogicalKeyboardKey.f7, LogicalKeyboardKey.f8, LogicalKeyboardKey.f9,
-  LogicalKeyboardKey.f10, LogicalKeyboardKey.f11, LogicalKeyboardKey.f12,
+/// Keys that only ever act as modifiers (or toggles) and can't be the
+/// shortcut's main key.
+final Set<PhysicalKeyboardKey> _kModifierKeys = {
+  PhysicalKeyboardKey.controlLeft, PhysicalKeyboardKey.controlRight,
+  PhysicalKeyboardKey.shiftLeft, PhysicalKeyboardKey.shiftRight,
+  PhysicalKeyboardKey.altLeft, PhysicalKeyboardKey.altRight,
+  PhysicalKeyboardKey.metaLeft, PhysicalKeyboardKey.metaRight,
+  PhysicalKeyboardKey.fn, PhysicalKeyboardKey.capsLock,
 };
 
 class RecordedHotKey {
-  RecordedHotKey({required this.key, required this.modifiers, required this.label});
+  RecordedHotKey({required this.key, required this.modifiers});
 
-  final LogicalKeyboardKey key;
+  final PhysicalKeyboardKey key;
   final List<HotKeyModifier> modifiers;
-  final String label;
+
+  String get label => formatHotKey(key, modifiers);
 }
 
 Future<RecordedHotKey?> showHotKeyRecorderDialog(BuildContext context) {
@@ -72,62 +69,31 @@ class _HotKeyRecorderDialogState extends State<_HotKeyRecorderDialog> {
   }
 
   List<HotKeyModifier> _currentModifiers() {
-    final pressed = HardwareKeyboard.instance.logicalKeysPressed;
+    final pressed = HardwareKeyboard.instance.physicalKeysPressed;
     return [
-      if (pressed.contains(LogicalKeyboardKey.controlLeft) ||
-          pressed.contains(LogicalKeyboardKey.controlRight))
-        HotKeyModifier.control,
-      if (pressed.contains(LogicalKeyboardKey.shiftLeft) ||
-          pressed.contains(LogicalKeyboardKey.shiftRight))
-        HotKeyModifier.shift,
-      if (pressed.contains(LogicalKeyboardKey.altLeft) ||
-          pressed.contains(LogicalKeyboardKey.altRight))
-        HotKeyModifier.alt,
-      if (pressed.contains(LogicalKeyboardKey.metaLeft) ||
-          pressed.contains(LogicalKeyboardKey.metaRight))
-        HotKeyModifier.meta,
+      for (final m in [HotKeyModifier.control, HotKeyModifier.shift, HotKeyModifier.alt, HotKeyModifier.meta])
+        if (m.physicalKeys.any(pressed.contains)) m,
     ];
   }
 
-  String _modifierLabel(List<HotKeyModifier> modifiers) {
-    return modifiers.map((m) {
-      switch (m) {
-        case HotKeyModifier.control:
-          return 'Ctrl';
-        case HotKeyModifier.shift:
-          return 'Shift';
-        case HotKeyModifier.alt:
-          return 'Alt';
-        case HotKeyModifier.meta:
-          return 'Win';
-        default:
-          return m.name;
-      }
-    }).join(' + ');
-  }
+  String get _modifierHint => Platform.isMacOS ? '⌘, ⌥, ⌃ or ⇧' : 'Ctrl, Alt, Shift or Win';
 
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) {
+    final key = event.physicalKey;
+    // Windows reports Print Screen with a key-up only, no key-down.
+    final isPress = event is KeyDownEvent ||
+        (event is KeyUpEvent && key == PhysicalKeyboardKey.printScreen);
+    if (!isPress) {
       setState(() => _liveModifiers = _currentModifiers());
       return KeyEventResult.handled;
     }
 
-    final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.escape) {
+    if (key == PhysicalKeyboardKey.escape) {
       Navigator.of(context).pop();
       return KeyEventResult.handled;
     }
 
-    final isModifierKey = key == LogicalKeyboardKey.controlLeft ||
-        key == LogicalKeyboardKey.controlRight ||
-        key == LogicalKeyboardKey.shiftLeft ||
-        key == LogicalKeyboardKey.shiftRight ||
-        key == LogicalKeyboardKey.altLeft ||
-        key == LogicalKeyboardKey.altRight ||
-        key == LogicalKeyboardKey.metaLeft ||
-        key == LogicalKeyboardKey.metaRight;
-
-    if (isModifierKey) {
+    if (_kModifierKeys.contains(key)) {
       setState(() {
         _error = null;
         _liveModifiers = _currentModifiers();
@@ -135,29 +101,27 @@ class _HotKeyRecorderDialogState extends State<_HotKeyRecorderDialog> {
       return KeyEventResult.handled;
     }
 
-    if (!kAllowedHotKeyBodyKeys.contains(key)) {
-      setState(() => _error = 'Use a letter, number, or F-key');
+    // hotkey_manager hands the native side this platform key code; a key
+    // without one (some media/OEM keys) can't be registered at all.
+    if (key.keyCode == null) {
+      setState(() => _error = "That key can't be used as a shortcut");
       return KeyEventResult.handled;
     }
 
     final modifiers = _currentModifiers();
-    if (modifiers.isEmpty && !_kFunctionKeys.contains(key)) {
-      setState(() => _error = 'Add Ctrl, Alt, Shift, or Win as well');
+    if (modifiers.isEmpty && !_kStandaloneKeys.contains(key)) {
+      setState(() => _error = 'Add $_modifierHint to ${keyLabel(key)}');
       return KeyEventResult.handled;
     }
 
-    final label = [
-      ..._modifierLabel(modifiers).split(' + ').where((s) => s.isNotEmpty),
-      key.keyLabel,
-    ].join(' + ');
-
-    Navigator.of(context).pop(RecordedHotKey(key: key, modifiers: modifiers, label: label));
+    Navigator.of(context).pop(RecordedHotKey(key: key, modifiers: modifiers));
     return KeyEventResult.handled;
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = AlienPalette.of(context);
+    final mods = formatModifiers(_liveModifiers);
     return AlertDialog(
       title: const Text('Record a shortcut'),
       content: Focus(
@@ -177,9 +141,7 @@ class _HotKeyRecorderDialogState extends State<_HotKeyRecorderDialog> {
               Icon(Icons.keyboard_rounded, color: palette.accentText, size: 28),
               const SizedBox(height: 14),
               Text(
-                _liveModifiers.isEmpty
-                    ? '…'
-                    : '${_modifierLabel(_liveModifiers)} + …',
+                mods.isEmpty ? '…' : (Platform.isMacOS ? '$mods…' : '$mods + …'),
                 style: TextStyle(
                   fontFamily: AppFonts.display,
                   color: palette.text,
@@ -194,7 +156,11 @@ class _HotKeyRecorderDialogState extends State<_HotKeyRecorderDialog> {
               ),
               if (_error != null) ...[
                 const SizedBox(height: 8),
-                Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                ),
               ],
             ],
           ),
