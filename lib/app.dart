@@ -14,6 +14,7 @@ import 'screens/about_screen.dart';
 import 'screens/help_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/lightshot_capture_screen.dart';
+import 'screens/mac_preferences_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/capture_service.dart';
@@ -25,7 +26,7 @@ import 'services/window_focus.dart';
 import 'theme/app_theme.dart';
 import 'widgets/sign_in_dialog.dart';
 
-enum _View { home, settings, capture, about, help, profile }
+enum _View { home, settings, preferences, capture, about, help, profile }
 
 /// The active theme choice. Lives above [MaterialApp] so the home state below
 /// it can switch themes, including a live preview from Settings.
@@ -133,7 +134,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     await trayService.init(
       onSignIn: _showSignInComingSoon,
       onCapture: _captureRegion,
-      onOptions: () => _openWindow(_View.settings),
+      onOptions: () => _openWindow(_settingsView),
       onAbout: () => _openWindow(_View.about),
       onHelp: () => _openWindow(_View.help),
       onExit: _quit,
@@ -176,13 +177,19 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   Future<bool> _registerHotKey() async {
     await hotKeyManager.unregisterAll();
     final hotKey = resolveHotKey(_settings);
-    final free = isHotKeyFree(hotKey);
-    if (free) {
+    // A cleared shortcut (macOS Preferences) leaves nothing to claim.
+    final free = hotKey == null || isHotKeyFree(hotKey);
+    if (hotKey != null && free) {
       await hotKeyManager.register(hotKey, keyDownHandler: (_) => _captureRegion());
     }
+    await trayService.setShortcutHint(free ? hotKey : null);
     if (mounted) setState(() => _hotKeyActive = free);
     return free;
   }
+
+  /// Where "Options…"/"Preferences…" and the gear lead: the Mac gets
+  /// Lightshot's short preferences window, Windows the full settings.
+  _View get _settingsView => Platform.isMacOS ? _View.preferences : _View.settings;
 
   Future<void> _warnHotKeyUnavailable() async {
     if (!_windowVisible) await _openWindow(_View.home);
@@ -203,7 +210,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
         ],
       ),
     );
-    if (change == true && mounted) setState(() => _view = _View.settings);
+    if (change == true && mounted) await _openWindow(_settingsView);
   }
 
   /// Grabs a full-screen snapshot, then shows our own single-surface
@@ -325,7 +332,9 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
       _view = view;
       _discardCapture();
     });
-    await windowManager.setSize(const Size(480, 460));
+    // The Mac preferences hold two rows; a compact window suits them, as
+    // Lightshot's does.
+    await windowManager.setSize(view == _View.preferences ? const Size(460, 250) : const Size(480, 460));
     await windowManager.center();
     await windowManager.setSkipTaskbar(false);
     await _showWindow();
@@ -333,7 +342,11 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   }
 
   void _openSettings() {
-    setState(() => _view = _View.settings);
+    if (Platform.isMacOS) {
+      _openWindow(_View.preferences);
+    } else {
+      setState(() => _view = _View.settings);
+    }
   }
 
   Future<void> _saveSettings(AppSettings settings) async {
@@ -425,6 +438,13 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
         return LightshotCaptureScreen(
           screenImage: image,
           onClose: _closeCapture,
+          downscaleRetina: Platform.isMacOS && _settings.downscaleRetina,
+        );
+      case _View.preferences:
+        return MacPreferencesScreen(
+          settings: _settings,
+          onChanged: _saveSettings,
+          onBack: () => _openWindow(_View.home),
         );
       case _View.settings:
         return SettingsScreen(
