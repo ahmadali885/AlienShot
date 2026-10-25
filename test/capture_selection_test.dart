@@ -57,6 +57,37 @@ void main() {
     expect(tester.getCenter(find.byTooltip('Copy')) - before, const Offset(100, 60));
   });
 
+  testWidgets('stamp, erase it, then undo brings it back', variant: _windows, (tester) async {
+    await pumpOverlay(tester);
+    await drag(tester, const Offset(100, 100), const Offset(900, 500));
+
+    bool enabled(String tooltip) => tester
+            .widget<InkWell>(find.descendant(of: find.byTooltip(tooltip), matching: find.byType(InkWell)))
+            .onTap !=
+        null;
+    expect(enabled('Delete all'), isFalse);
+
+    // Stamps opens its flyout and arms the stamp tool; pick the star.
+    await tester.tap(find.byTooltip('Stamps'));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.star_rounded));
+    await tester.pump();
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump();
+    expect(enabled('Delete all'), isTrue);
+
+    await tester.tap(find.byTooltip('Eraser'));
+    await tester.pump();
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump();
+    expect(enabled('Delete all'), isFalse);
+
+    await tester.tap(find.byTooltip('Undo'));
+    await tester.pump();
+    expect(enabled('Delete all'), isTrue);
+    expect(enabled('Redo'), isTrue);
+  });
+
   testWidgets('a click without a drag leaves no stuck selection', variant: _windows, (tester) async {
     await pumpOverlay(tester);
     final gesture = await tester.startGesture(const Offset(200, 200), kind: PointerDeviceKind.mouse);

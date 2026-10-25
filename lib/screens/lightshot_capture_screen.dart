@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:file_selector/file_selector.dart';
@@ -11,8 +11,7 @@ import '../services/clipboard_service.dart';
 import '../services/upload_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/annotation_painter.dart';
-import '../widgets/color_picker_popup.dart';
-import '../widgets/glass_container.dart';
+import '../widgets/annotation_toolbar.dart';
 
 enum _Phase { selecting, annotating }
 
@@ -53,12 +52,26 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
 
   final List<Annotation> _annotations = [];
   Annotation? _draft;
+
+  /// Earlier states of [_annotations], for undo/redo. Each change (a new
+  /// mark, an erase, Delete all) pushes the state it replaced.
+  final List<List<Annotation>> _undoStack = [];
+  final List<List<Annotation>> _redoStack = [];
+
   /// Nothing is picked at first, as in Lightshot: until a tool is chosen,
   /// dragging inside the selection moves it instead of drawing.
   AnnotationTool? _tool;
   bool _movingSelection = false;
-  Color _color = Colors.red;
-  double _strokeWidth = 4;
+  bool _erasing = false;
+
+  /// The Draw button's last pick, re-armed when it's pressed again.
+  AnnotationTool _drawTool = AnnotationTool.pen;
+  ShapeKind _shapeKind = ShapeKind.rectangle;
+  ShapeFill _shapeFill = ShapeFill.none;
+  StampKind _stampKind = StampKind.check;
+  ToolbarPanel _panel = ToolbarPanel.none;
+  Color _color = kAnnotationColors[1]; // red
+  double _strokeWidth = kStrokeWidths[1];
   bool _uploading = false;
 
   @override
@@ -189,45 +202,48 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   // --- Phase 2: annotating inside the locked selection ---
 
   void _handleAnnotatePanStart(DragStartDetails details) {
+    _closePanel();
     final tool = _tool;
     if (tool == null) {
       _movingSelection = true;
       return;
     }
-    if (tool == AnnotationTool.text) return;
     final point = _localToAbsolute(details.localPosition);
-    setState(() {
-      switch (tool) {
-        case AnnotationTool.rectangle:
-        case AnnotationTool.arrow:
-          _draft = ShapeAnnotation(
-            tool: tool,
-            start: point,
-            end: point,
-            color: _color,
-            strokeWidth: _strokeWidth,
-          );
-          break;
-        case AnnotationTool.pen:
-          _draft = FreehandAnnotation(points: [point], color: _color, strokeWidth: _strokeWidth);
-          break;
-        case AnnotationTool.highlighter:
-          _draft = FreehandAnnotation(
-            points: [point],
-            color: _color,
-            strokeWidth: _strokeWidth,
-            highlighter: true,
-          );
-          break;
-        case AnnotationTool.text:
-          break;
-      }
-    });
+    switch (tool) {
+      case AnnotationTool.shape:
+        setState(() => _draft = ShapeAnnotation(
+              kind: _shapeKind,
+              fill: _shapeFill,
+              start: point,
+              end: point,
+              color: _color,
+              strokeWidth: _strokeWidth,
+            ));
+      case AnnotationTool.pen:
+      case AnnotationTool.highlighter:
+        setState(() => _draft = FreehandAnnotation(
+              points: [point],
+              color: _color,
+              strokeWidth: _strokeWidth,
+              highlighter: tool == AnnotationTool.highlighter,
+            ));
+      case AnnotationTool.eraser:
+        _erasing = true;
+        _eraseAt(point);
+      // Text and stamps go where the user clicks (see the tap handler).
+      case AnnotationTool.text:
+      case AnnotationTool.stamp:
+        break;
+    }
   }
 
   void _handleAnnotatePanUpdate(DragUpdateDetails details) {
     if (_movingSelection) {
       _moveSelection(details.delta, MediaQuery.of(context).size);
+      return;
+    }
+    if (_erasing) {
+      _eraseAt(_localToAbsolute(details.localPosition));
       return;
     }
     if (_draft == null) return;
@@ -247,12 +263,60 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
       _movingSelection = false;
       return;
     }
-    if (_draft == null) return;
-    setState(() {
-      _annotations.add(_draft!);
-      _draft = null;
-    });
+    if (_erasing) {
+      _erasing = false;
+      return;
+    }
+    final draft = _draft;
+    if (draft == null) return;
+    _draft = null;
+    _commit(() => _annotations.add(draft));
   }
+
+  /// Records the current marks for undo, then applies [change].
+  void _commit(VoidCallback change) {
+    _undoStack.add(List.of(_annotations));
+    _redoStack.clear();
+    setState(change);
+  }
+
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    _redoStack.add(List.of(_annotations));
+    setState(() => _annotations
+      ..clear()
+      ..addAll(_undoStack.removeLast()));
+  }
+
+  void _redo() {
+    if (_redoStack.isEmpty) return;
+    _undoStack.add(List.of(_annotations));
+    setState(() => _annotations
+      ..clear()
+      ..addAll(_redoStack.removeLast()));
+  }
+
+  void _clearAll() {
+    if (_annotations.isEmpty) return;
+    _commit(_annotations.clear);
+  }
+
+  /// Removes the topmost mark under [point], if any.
+  void _eraseAt(Offset point) {
+    for (var i = _annotations.length - 1; i >= 0; i--) {
+      if (annotationHitTest(_annotations[i], point)) {
+        _commit(() => _annotations.removeAt(i));
+        return;
+      }
+    }
+  }
+
+  void _closePanel() {
+    if (_panel != ToolbarPanel.none) setState(() => _panel = ToolbarPanel.none);
+  }
+
+  /// Stamps scale with the chosen line width: 28px at the thinnest.
+  double get _stampSize => 20 + _strokeWidth * 4;
 
   /// Slides the whole selection, kept on screen. Annotations stay where they
   /// were drawn (they're in screen space), as they do when resizing.
@@ -265,20 +329,29 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   }
 
   Future<void> _handleAnnotateTapUp(TapUpDetails details) async {
-    if (_tool != AnnotationTool.text) return;
+    _closePanel();
     final point = _localToAbsolute(details.localPosition);
-    final text = await _promptForText();
-    if (text == null || text.trim().isEmpty) return;
-    setState(() {
-      _annotations.add(
-        TextAnnotation(
-          position: point,
-          text: text.trim(),
-          color: _color,
-          fontSize: 14 + _strokeWidth * 2,
-        ),
-      );
-    });
+    switch (_tool) {
+      case AnnotationTool.stamp:
+        _commit(() => _annotations.add(
+              StampAnnotation(kind: _stampKind, center: point, size: _stampSize, color: _color),
+            ));
+      case AnnotationTool.eraser:
+        _eraseAt(point);
+      case AnnotationTool.text:
+        final text = await _promptForText();
+        if (text == null || text.trim().isEmpty) return;
+        _commit(() => _annotations.add(
+              TextAnnotation(
+                position: point,
+                text: text.trim(),
+                color: _color,
+                fontSize: 14 + _strokeWidth * 2,
+              ),
+            ));
+      default:
+        break;
+    }
   }
 
   Future<String?> _promptForText() {
@@ -296,19 +369,27 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
     );
   }
 
-  void _undo() {
-    if (_annotations.isEmpty) return;
-    setState(() => _annotations.removeLast());
-  }
-
-  void _clearAll() {
-    if (_annotations.isEmpty) return;
-    setState(() => _annotations.clear());
-  }
-
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
-      widget.onClose();
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.escape) {
+      // An open flyout closes first; a second Esc cancels the capture.
+      if (_panel != ToolbarPanel.none) {
+        _closePanel();
+      } else {
+        widget.onClose();
+      }
+      return KeyEventResult.handled;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    // ⌘ on macOS, Ctrl elsewhere.
+    final command = Platform.isMacOS ? keyboard.isMetaPressed : keyboard.isControlPressed;
+    if (command && key == LogicalKeyboardKey.keyZ) {
+      keyboard.isShiftPressed ? _redo() : _undo();
+      return KeyEventResult.handled;
+    }
+    if (command && key == LogicalKeyboardKey.keyY) {
+      _redo();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -370,11 +451,19 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   Annotation _remapAnnotation(Annotation a, Offset Function(Offset) map, double scale) {
     if (a is ShapeAnnotation) {
       return ShapeAnnotation(
-        tool: a.tool,
+        kind: a.kind,
+        fill: a.fill,
         start: map(a.start),
         end: map(a.end),
         color: a.color,
         strokeWidth: a.strokeWidth * scale,
+      );
+    } else if (a is StampAnnotation) {
+      return StampAnnotation(
+        kind: a.kind,
+        center: map(a.center),
+        size: a.size * scale,
+        color: a.color,
       );
     } else if (a is FreehandAnnotation) {
       return FreehandAnnotation(
@@ -505,7 +594,12 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                 width: selection.width,
                 height: selection.height,
                 child: MouseRegion(
-                  cursor: _tool == null ? SystemMouseCursors.move : SystemMouseCursors.precise,
+                  cursor: switch (_tool) {
+                    null => SystemMouseCursors.move,
+                    AnnotationTool.text => SystemMouseCursors.text,
+                    AnnotationTool.stamp || AnnotationTool.eraser => SystemMouseCursors.click,
+                    _ => SystemMouseCursors.precise,
+                  },
                   child: GestureDetector(
                     // Required: without it the detector defers to its child, and
                     // a childless SizedBox isn't hit-testable — every drag fell
@@ -540,18 +634,49 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                     _resizeSelection(handle, delta, MediaQuery.of(context).size),
               ),
             if (_phase == _Phase.annotating && selection != null)
-              _FloatingToolbar(
+              AnnotationToolbar(
                 selection: selection,
                 screenSize: MediaQuery.of(context).size,
                 tool: _tool,
+                drawTool: _drawTool,
+                shapeKind: _shapeKind,
+                shapeFill: _shapeFill,
+                stampKind: _stampKind,
                 color: _color,
                 strokeWidth: _strokeWidth,
+                panel: _panel,
+                canUndo: _undoStack.isNotEmpty,
+                canRedo: _redoStack.isNotEmpty,
+                canClear: _annotations.isNotEmpty,
                 uploading: _uploading,
-                // Picking the active tool again puts it down (back to moving).
-                onToolChanged: (t) => setState(() => _tool = _tool == t ? null : t),
-                onColorChanged: (c) => setState(() => _color = c),
+                onToolChanged: (t) => setState(() {
+                  _tool = t;
+                  _panel = ToolbarPanel.none;
+                }),
+                onPenPicked: (highlighter) => setState(() {
+                  _tool = _drawTool = highlighter ? AnnotationTool.highlighter : AnnotationTool.pen;
+                  _panel = ToolbarPanel.none;
+                }),
+                onShapePicked: (kind, fill) => setState(() {
+                  _tool = _drawTool = AnnotationTool.shape;
+                  _shapeKind = kind;
+                  _shapeFill = fill;
+                  _panel = ToolbarPanel.none;
+                }),
+                onStampPicked: (kind) => setState(() {
+                  _tool = AnnotationTool.stamp;
+                  _stampKind = kind;
+                  _panel = ToolbarPanel.none;
+                }),
+                onColorChanged: (c) => setState(() {
+                  _color = c;
+                  _panel = ToolbarPanel.none;
+                }),
+                // Kept open: the width is usually chosen before a pen/shape.
                 onStrokeWidthChanged: (w) => setState(() => _strokeWidth = w),
+                onPanelChanged: (p) => setState(() => _panel = p),
                 onUndo: _undo,
+                onRedo: _redo,
                 onClear: _clearAll,
                 onCopy: () => _finishAndClose(_handleCopy),
                 onSave: () => _finishAndClose(_handleSave),
@@ -623,227 +748,6 @@ class _Hint extends StatelessWidget {
         style: TextStyle(color: palette.textSoft, fontSize: 13, fontWeight: FontWeight.w500),
       ),
     );
-  }
-}
-
-class _FloatingToolbar extends StatelessWidget {
-  const _FloatingToolbar({
-    required this.selection,
-    required this.screenSize,
-    required this.tool,
-    required this.color,
-    required this.strokeWidth,
-    required this.uploading,
-    required this.onToolChanged,
-    required this.onColorChanged,
-    required this.onStrokeWidthChanged,
-    required this.onUndo,
-    required this.onClear,
-    required this.onCopy,
-    required this.onSave,
-    required this.onUpload,
-    required this.onClose,
-  });
-
-  final Rect selection;
-  final Size screenSize;
-  final AnnotationTool? tool;
-  final Color color;
-  final double strokeWidth;
-  final bool uploading;
-  final ValueChanged<AnnotationTool> onToolChanged;
-  final ValueChanged<Color> onColorChanged;
-  final ValueChanged<double> onStrokeWidthChanged;
-  final VoidCallback onUndo;
-  final VoidCallback onClear;
-  final VoidCallback onCopy;
-  final VoidCallback onSave;
-  final VoidCallback onUpload;
-  final VoidCallback onClose;
-
-  static const double _barHeight = 48;
-  static const double _barWidth = 560;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AlienPalette.of(context);
-    // A white ring vanishes on the light glass; use the text colour there.
-    final selectedRing = palette.isLight ? palette.text : Colors.white;
-    final fitsBelow = selection.bottom + _barHeight + 12 < screenSize.height;
-    final top = fitsBelow ? selection.bottom + 8 : selection.top - _barHeight - 8;
-    var left = selection.right - _barWidth;
-    left = left.clamp(8.0, (screenSize.width - _barWidth - 8).clamp(8.0, double.infinity));
-
-    return Positioned(
-      left: left,
-      top: top.clamp(8.0, screenSize.height - _barHeight - 8),
-      // Pill-shaped like the site's nav group: radius = half the bar height.
-      child: GlassContainer(
-        borderRadius: _barHeight / 2,
-        child: SizedBox(
-          width: _barWidth,
-          height: _barHeight,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            child: Row(
-              children: [
-                _ToolIcon(Icons.crop_square_rounded, tool == AnnotationTool.rectangle, () => onToolChanged(AnnotationTool.rectangle)),
-                _ToolIcon(Icons.north_east_rounded, tool == AnnotationTool.arrow, () => onToolChanged(AnnotationTool.arrow)),
-                _ToolIcon(Icons.edit_rounded, tool == AnnotationTool.pen, () => onToolChanged(AnnotationTool.pen)),
-                _ToolIcon(Icons.border_color_rounded, tool == AnnotationTool.highlighter, () => onToolChanged(AnnotationTool.highlighter)),
-                _ToolIcon(Icons.text_fields_rounded, tool == AnnotationTool.text, () => onToolChanged(AnnotationTool.text)),
-                const SizedBox(width: 6),
-                const _BarDivider(),
-                const SizedBox(width: 6),
-                ...kAnnotationColors.take(6).map(
-                  (c) => GestureDetector(
-                    onTap: () => onColorChanged(c),
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      decoration: BoxDecoration(
-                        color: c,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: color == c ? selectedRing : palette.ghostBorder,
-                          width: color == c ? 2 : 1,
-                        ),
-                        boxShadow: color == c ? glow(c, alpha: 0.6, blur: 10) : null,
-                      ),
-                    ),
-                  ),
-                ),
-                _CustomColorButton(color: color, onPicked: onColorChanged),
-                const SizedBox(width: 6),
-                const _BarDivider(),
-                IconButton(
-                  tooltip: 'Undo',
-                  iconSize: 18,
-                  icon: Icon(Icons.undo_rounded, color: palette.textSoft),
-                  onPressed: onUndo,
-                ),
-                const Spacer(),
-                IconButton(
-                  tooltip: 'Copy',
-                  iconSize: 18,
-                  icon: Icon(Icons.copy_rounded, color: palette.text),
-                  onPressed: onCopy,
-                ),
-                IconButton(
-                  tooltip: 'Save',
-                  iconSize: 18,
-                  icon: Icon(Icons.save_alt_rounded, color: palette.text),
-                  onPressed: onSave,
-                ),
-                IconButton(
-                  tooltip: 'Upload link',
-                  iconSize: 18,
-                  icon: uploading
-                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(Icons.link_rounded, color: palette.accentText),
-                  onPressed: uploading ? null : onUpload,
-                ),
-                IconButton(
-                  tooltip: 'Close',
-                  iconSize: 18,
-                  icon: Icon(Icons.close_rounded, color: palette.textSoft),
-                  onPressed: onClose,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Opens the HSV picker. Shows the active colour when it isn't one of the
-/// preset swatches, so a custom pick stays visible on the toolbar.
-class _CustomColorButton extends StatelessWidget {
-  const _CustomColorButton({required this.color, required this.onPicked});
-
-  final Color color;
-  final ValueChanged<Color> onPicked;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AlienPalette.of(context);
-    final isCustom = !kAnnotationColors.take(6).contains(color);
-    return GestureDetector(
-      onTap: () async {
-        final picked = await ColorPickerPopup.show(context, color);
-        if (picked != null) onPicked(picked);
-      },
-      child: Container(
-        width: 18,
-        height: 18,
-        margin: const EdgeInsets.symmetric(horizontal: 3),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const SweepGradient(
-            colors: [
-              Color(0xFFFF1744),
-              Color(0xFFFFEA00),
-              Color(0xFF00E676),
-              Color(0xFF00E5FF),
-              Color(0xFF2979FF),
-              Color(0xFFD500F9),
-              Color(0xFFFF1744),
-            ],
-          ),
-          border: Border.all(
-            color: isCustom ? (palette.isLight ? palette.text : Colors.white) : palette.ghostBorder,
-            width: isCustom ? 2 : 1,
-          ),
-        ),
-        child: isCustom
-            ? Center(
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                ),
-              )
-            : null,
-      ),
-    );
-  }
-}
-
-class _ToolIcon extends StatelessWidget {
-  const _ToolIcon(this.icon, this.selected, this.onPressed);
-
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      customBorder: const CircleBorder(),
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.all(7),
-        margin: const EdgeInsets.symmetric(horizontal: 1),
-        decoration: BoxDecoration(
-          gradient: selected ? AppColors.accentGradient : null,
-          shape: BoxShape.circle,
-          boxShadow: selected ? glow(AppColors.accent, blur: 12, alpha: 0.5) : null,
-        ),
-        child: Icon(icon, size: 17, color: selected ? AppColors.onAccent : AlienPalette.of(context).text),
-      ),
-    );
-  }
-}
-
-class _BarDivider extends StatelessWidget {
-  const _BarDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(width: 1, height: 22, color: AlienPalette.of(context).glassBorder);
   }
 }
 
