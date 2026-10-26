@@ -1,7 +1,8 @@
 param([string]$Root = (Resolve-Path "$PSScriptRoot\..\..").Path, [string]$Out = $PSScriptRoot)
 # Renders installer/macos/dmg-background(@2x).png, the macOS DMG window
-# background (660x400 pt), in the app's dark theme: the hero.frag marble
-# (ported to C#) under a teal glass card. Run on Windows PowerShell.
+# background (680x420 pt): the app's hero.frag marble (ported to C#) as a
+# starry night, with a glass tile for the app and one for Applications.
+# Run on Windows PowerShell.
 Add-Type -AssemblyName System.Drawing
 $ErrorActionPreference = 'Stop'
 
@@ -118,61 +119,84 @@ function RoundRect($x, $y, $w, $h, $r) {
 }
 
 function Render($scale, $out) {
-  $W = 660; $H = 400
-  $bmp = [Marble]::Render([int]($W * $scale), [int]($H * $scale), 30.0)
+  $W = 680; $H = 420
+  $bmp = [Marble]::Render([int]($W * $scale), [int]($H * $scale), 46.0)
   $bmp.SetResolution(72 * $scale, 72 * $scale)
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.SmoothingMode = 'AntiAlias'
   $g.TextRenderingHint = 'AntiAliasGridFit'
+  $g.InterpolationMode = 'HighQualityBicubic'
   $g.ScaleTransform($scale, $scale)
 
-  # Header: the app icon beside the wordmark (white "ALIEN", accent "SHOT"),
-  # as in the app's title bar, then a small eyebrow like the site's.
-  $wfont = New-Object System.Drawing.Font $outfitXB, 26, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
-  $track = 26 * 0.08
+  # Deepen the edges so the centre glows.
+  $edge = New-Object System.Drawing.Drawing2D.GraphicsPath
+  $edge.AddEllipse(-180, -160, $W + 360, $H + 320)
+  $vignette = New-Object System.Drawing.Drawing2D.PathGradientBrush $edge
+  $vignette.CenterColor = C '#000000' 0
+  $vignette.SurroundColors = @((C '#02090C' 200))
+  $g.FillRectangle($vignette, -2, -2, $W + 4, $H + 4)
+
+  # A teal glow behind the two tiles.
+  $glowPath = New-Object System.Drawing.Drawing2D.GraphicsPath
+  $glowPath.AddEllipse(90, 90, 500, 270)
+  $glow = New-Object System.Drawing.Drawing2D.PathGradientBrush $glowPath
+  $glow.CenterColor = C '#1F97B0' 70
+  $glow.SurroundColors = @((C '#1F97B0' 0))
+  $g.FillPath($glow, $glowPath)
+
+  # Faint stars: AlienWave is a space brand. Seeded, so every render matches.
+  $rng = New-Object System.Random 7
+  for ($i = 0; $i -lt 90; $i++) {
+    $x = $rng.NextDouble() * $W; $y = $rng.NextDouble() * $H
+    $r = 0.4 + $rng.NextDouble() * 1.0
+    $a = [int](40 + $rng.NextDouble() * 120)
+    $g.FillEllipse((New-Object System.Drawing.SolidBrush (C '#E2F2F6' $a)), [single]($x - $r), [single]($y - $r), [single]($r * 2), [single]($r * 2))
+  }
+
+  # Header: icon + wordmark, then the tagline.
+  $wfont = New-Object System.Drawing.Font $outfitXB, 24, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+  $track = 24 * 0.08
   $wordW = (Glyphs $g 'ALIENSHOT' $wfont $null 0 0 $track $false) - $track
-  $logoSize = 34; $gap = 12
+  $logoSize = 32; $gap = 11
   $x0 = ($W - ($logoSize + $gap + $wordW)) / 2
   $logo = [System.Drawing.Image]::FromFile("$Root\assets\images\app_logo.png")
-  $g.InterpolationMode = 'HighQualityBicubic'
   $g.DrawImage($logo, [single]$x0, [single]26, [single]$logoSize, [single]$logoSize)
   $logo.Dispose()
   $x = Glyphs $g 'ALIEN' $wfont ([System.Drawing.Brushes]::White) ($x0 + $logoSize + $gap) 28 $track $true
   [void](Glyphs $g 'SHOT' $wfont (New-Object System.Drawing.SolidBrush (C '#3FBCC9')) $x 28 $track $true)
 
-  $eyebrow = New-Object System.Drawing.Font $urbanSemi, 11, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
-  $ebTrack = 11 * 0.16
-  $ebW = (Glyphs $g 'DRAG TO INSTALL' $eyebrow $null 0 0 $ebTrack $false) - $ebTrack
-  [void](Glyphs $g 'DRAG TO INSTALL' $eyebrow (New-Object System.Drawing.SolidBrush (C '#8FB3BC')) (($W - $ebW) / 2) 72 $ebTrack $true)
-
   $center = New-Object System.Drawing.StringFormat
   $center.Alignment = 'Center'
+  $tagline = New-Object System.Drawing.Font $urbanMed, 13.5, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+  $g.DrawString('Drag AlienShot onto Applications to install', $tagline, (New-Object System.Drawing.SolidBrush (C '#9CC1CA')), (New-Object System.Drawing.RectangleF 0, 68, $W, 20), $center)
 
-  # Glass card holding the two icons. Finder draws the icon names itself, in
-  # black (light mode) or white (dark mode), and they sit on this card — so
-  # it's a mid-tone teal both read on (~4.5:1 either way), unlike the app's
-  # near-black glass.
-  $card = RoundRect 70 100 520 204 26
-  $shadow = RoundRect 70 110 520 204 26
-  $g.FillPath((New-Object System.Drawing.SolidBrush (C '#000000' 70)), $shadow)
-  # Brushes span a little past the card: GDI+ tiles a gradient beyond its end
-  # points, which showed up as hard bands across the card.
-  $span = New-Object System.Drawing.RectangleF 70, 98, 520, 210
-  $fill = New-Object System.Drawing.Drawing2D.LinearGradientBrush $span, (C '#2A6A77' 238), (C '#3B8896' 238), 90
-  $g.FillPath($fill, $card)
-  $sheen = New-Object System.Drawing.Drawing2D.LinearGradientBrush $span, (C '#FFFFFF' 26), (C '#FFFFFF' 0), 90
-  $blend = New-Object System.Drawing.Drawing2D.ColorBlend 3
-  $blend.Colors = @((C '#FFFFFF' 30), (C '#FFFFFF' 0), (C '#FFFFFF' 0))
-  $blend.Positions = @([single]0, [single]0.45, [single]1)
-  $sheen.InterpolationColors = $blend
-  $g.FillPath($sheen, $card)
-  $g.DrawPath((New-Object System.Drawing.Pen (C '#FFFFFF' 64), 1), $card)
+  # Two glass tiles. Finder writes the icon names itself — black in light
+  # mode, white in dark — and they land on these tiles, so the glass is a
+  # mid-tone teal both read on (~4.5:1 either way).
+  # Icons sit at (190, 222) and (490, 222).
+  foreach ($cx in 190, 490) {
+    $tx = $cx - 100; $ty = 118; $tw = 200; $th = 202
+    $shadow = RoundRect ($tx + 2) ($ty + 10) $tw $th 30
+    $g.FillPath((New-Object System.Drawing.SolidBrush (C '#000000' 80)), $shadow)
+    $tile = RoundRect $tx $ty $tw $th 30
+    $span = New-Object System.Drawing.RectangleF $tx, ($ty - 2), $tw, ($th + 4)
+    $fill = New-Object System.Drawing.Drawing2D.LinearGradientBrush $span, (C '#2C6E7B' 240), (C '#3A8794' 240), 90
+    $g.FillPath($fill, $tile)
+    $sheen = New-Object System.Drawing.Drawing2D.LinearGradientBrush $span, (C '#FFFFFF' 34), (C '#FFFFFF' 0), 90
+    $blend = New-Object System.Drawing.Drawing2D.ColorBlend 3
+    $blend.Colors = @((C '#FFFFFF' 34), (C '#FFFFFF' 0), (C '#FFFFFF' 0))
+    $blend.Positions = @([single]0, [single]0.5, [single]1)
+    $sheen.InterpolationColors = $blend
+    $g.FillPath($sheen, $tile)
+    # Gradient rim in the brand's accent colours.
+    $rimBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush $span, (C '#3FBCC9' 200), (C '#1F97B0' 90), 60
+    $g.DrawPath((New-Object System.Drawing.Pen $rimBrush, 1.5), $tile)
+  }
 
-  # The app sits in a capture frame — the corner brackets of the logo and of
-  # a selection in the app itself. Finder centres the icon on (170, 200).
+  # The app inside a capture frame — the logo's corner brackets.
   $bracket = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 3.5
   $bracket.StartCap = 'Round'; $bracket.EndCap = 'Round'; $bracket.LineJoin = 'Round'
-  $l = 110; $t = 140; $r = 230; $b = 258; $arm = 22
+  $l = 128; $t = 158; $r = 252; $b = 278; $arm = 20
   foreach ($c in @(@($l, $t, 1, 1), @($r, $t, -1, 1), @($l, $b, 1, -1), @($r, $b, -1, -1))) {
     $cx = [single]$c[0]; $cy = [single]$c[1]; $sx = $c[2]; $sy = $c[3]
     $g.DrawLines($bracket, [System.Drawing.PointF[]]@(
@@ -181,50 +205,46 @@ function Render($scale, $out) {
       (New-Object System.Drawing.PointF ($cx + $sx * $arm), $cy)))
   }
 
-  # A dashed drop zone around Applications (centred on (490, 200)).
-  $zone = RoundRect 430 140 120 118 22
-  $dash = New-Object System.Drawing.Pen (C '#FFFFFF' 150), 2
+  # Applications inside a dashed drop zone.
+  $zone = RoundRect 430 160 120 116 22
+  $dash = New-Object System.Drawing.Pen (C '#FFFFFF' 165), 2
   $dash.DashPattern = @([single]3, [single]3)
-  $dash.DashCap = 'Round'
   $g.DrawPath($dash, $zone)
 
-  # A glowing arc from the frame to the drop zone, ending in a chevron that
-  # follows the curve.
-  $p0 = New-Object System.Drawing.PointF 250, 196
-  $c1 = New-Object System.Drawing.PointF 292, 168
-  $c2 = New-Object System.Drawing.PointF 366, 168
-  $p3 = New-Object System.Drawing.PointF 404, 196
-  foreach ($glowLayer in @(@(16, 22), @(10, 40), @(6, 70))) {
-    $glowPen = New-Object System.Drawing.Pen (C '#3FBCC9' $glowLayer[1]), $glowLayer[0]
-    $glowPen.StartCap = 'Round'; $glowPen.EndCap = 'Round'
-    $g.DrawBezier($glowPen, $p0, $c1, $c2, $p3)
+  # A bold glowing arrow between the tiles.
+  $ay = 219
+  $p0 = New-Object System.Drawing.PointF 304, $ay
+  $p1 = New-Object System.Drawing.PointF 368, $ay
+  foreach ($layer in @(@(18, 26), @(12, 46), @(8, 80))) {
+    $gp = New-Object System.Drawing.Pen (C '#3FBCC9' $layer[1]), $layer[0]
+    $gp.StartCap = 'Round'; $gp.EndCap = 'Round'
+    $g.DrawLine($gp, $p0, $p1)
   }
-  $arcBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.RectangleF 246, 160, 164, 40), (C '#BDEFF4'), ([System.Drawing.Color]::White), 0
-  $arc = New-Object System.Drawing.Pen $arcBrush, 4
-  $arc.StartCap = 'Round'; $arc.EndCap = 'Round'
-  $g.DrawBezier($arc, $p0, $c1, $c2, $p3)
-  # Chevron along the end tangent (p3 - c2).
-  $dx = $p3.X - $c2.X; $dy = $p3.Y - $c2.Y; $len = [Math]::Sqrt($dx * $dx + $dy * $dy)
-  $ux = $dx / $len; $uy = $dy / $len
-  $headLen = 15; $spread = 36 * [Math]::PI / 180
-  $tip = New-Object System.Drawing.PointF ($p3.X + $ux * 3), ($p3.Y + $uy * 3)
-  # Each arm: the backwards direction (-u) rotated by ±spread.
-  $arms = foreach ($s in @(-1, 1)) {
-    $cos = [Math]::Cos($s * $spread); $sin = [Math]::Sin($s * $spread)
-    $bx = (-$ux) * $cos - (-$uy) * $sin
-    $by = (-$ux) * $sin + (-$uy) * $cos
-    New-Object System.Drawing.PointF ($tip.X + $bx * $headLen), ($tip.Y + $by * $headLen)
-  }
+  $shaftBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.RectangleF 300, ($ay - 4), 80, 8), (C '#BDEFF4'), ([System.Drawing.Color]::White), 0
+  $shaft = New-Object System.Drawing.Pen $shaftBrush, 5
+  $shaft.StartCap = 'Round'; $shaft.EndCap = 'Round'
+  $g.DrawLine($shaft, $p0, $p1)
+  $head = New-Object System.Drawing.Drawing2D.GraphicsPath
+  $head.AddPolygon([System.Drawing.PointF[]]@(
+    (New-Object System.Drawing.PointF 362, ($ay - 13)),
+    (New-Object System.Drawing.PointF 382, $ay),
+    (New-Object System.Drawing.PointF 362, ($ay + 13))))
+  $g.FillPath((New-Object System.Drawing.SolidBrush (C '#3FBCC9' 70)), $head)
   $headPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 4.5
-  $headPen.StartCap = 'Round'; $headPen.EndCap = 'Round'; $headPen.LineJoin = 'Round'
-  $g.DrawLines($headPen, [System.Drawing.PointF[]]@($arms[0], $tip, $arms[1]))
+  $headPen.LineJoin = 'Round'; $headPen.StartCap = 'Round'; $headPen.EndCap = 'Round'
+  $g.DrawLines($headPen, [System.Drawing.PointF[]]@(
+    (New-Object System.Drawing.PointF 364, ($ay - 12)),
+    (New-Object System.Drawing.PointF 380, $ay),
+    (New-Object System.Drawing.PointF 364, ($ay + 12))))
 
-  # First-launch tip: the app isn't notarised, so Gatekeeper stops it once.
-  $tipBold = New-Object System.Drawing.Font $urbanSemi, 12, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
-  $tip = New-Object System.Drawing.Font $urbanMed, 12, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+  # Footer: what to do if Gatekeeper stops the first launch, and who made it.
+  $tipBold = New-Object System.Drawing.Font $urbanSemi, 11.5, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+  $tip = New-Object System.Drawing.Font $urbanMed, 11.5, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
   $sep = '  ' + [char]0x203A + '  '
-  $g.DrawString('Blocked on first launch?', $tipBold, ([System.Drawing.Brushes]::White), (New-Object System.Drawing.RectangleF 0, 316, $W, 18), $center)
-  $g.DrawString("System Settings${sep}Privacy & Security${sep}Open Anyway", $tip, (New-Object System.Drawing.SolidBrush (C '#8FB3BC')), (New-Object System.Drawing.RectangleF 0, 334, $W, 18), $center)
+  $g.DrawString('Blocked on first launch?', $tipBold, ([System.Drawing.Brushes]::White), (New-Object System.Drawing.RectangleF 0, 336, $W, 16), $center)
+  $g.DrawString("System Settings${sep}Privacy & Security${sep}Open Anyway", $tip, (New-Object System.Drawing.SolidBrush (C '#9CC1CA')), (New-Object System.Drawing.RectangleF 0, 352, $W, 16), $center)
+  $small = New-Object System.Drawing.Font $urbanMed, 10, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+  $g.DrawString('by AlienWave  ' + [char]0x00B7 + '  alienwavegroup.com', $small, (New-Object System.Drawing.SolidBrush (C '#6F8F98')), (New-Object System.Drawing.RectangleF 0, 374, $W, 14), $center)
 
   $g.Dispose()
   $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)

@@ -112,12 +112,12 @@ jobs:
                 "${VOLICON[@]}" \
                 --background dmg-background.tiff \
                 --window-pos 200 120 \
-                --window-size 660 400 \
+                --window-size 680 420 \
                 --icon-size 112 \
                 --text-size 13 \
-                --icon "AlienShot.app" 170 200 \
+                --icon "AlienShot.app" 190 222 \
                 --hide-extension "AlienShot.app" \
-                --app-drop-link 490 200 \
+                --app-drop-link 490 222 \
                 AlienShot.dmg dmg-src/; then
               break
             fi
