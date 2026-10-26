@@ -12,6 +12,7 @@ class HomeScreen extends StatelessWidget {
     required this.hotKeyLabel,
     this.hotKeyActive = true,
     required this.onCapture,
+    this.onRecord,
     required this.onOpenSettings,
     required this.onOpenAbout,
     required this.onOpenProfile,
@@ -24,6 +25,9 @@ class HomeScreen extends StatelessWidget {
   /// False when another program owns the shortcut, so pressing it does nothing.
   final bool hotKeyActive;
   final VoidCallback onCapture;
+
+  /// Starts a screen recording; null where recording isn't available.
+  final VoidCallback? onRecord;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenAbout;
   final VoidCallback onOpenProfile;
@@ -92,10 +96,19 @@ class HomeScreen extends StatelessWidget {
                   const SizedBox(height: 10),
                   const _Headline(),
                   const SizedBox(height: 22),
-                  PillButton(
-                    icon: Icons.crop_rounded,
-                    label: 'Capture region',
-                    onPressed: onCapture,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      PillButton(
+                        icon: Icons.crop_rounded,
+                        label: 'Capture region',
+                        onPressed: onCapture,
+                      ),
+                      if (onRecord != null) ...[
+                        const SizedBox(width: 10),
+                        _RecordButton(onPressed: onRecord!),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -261,6 +274,54 @@ class _QuietLink extends StatelessWidget {
         textStyle: const TextStyle(fontFamily: AppFonts.body, fontSize: 12, fontWeight: FontWeight.w500),
       ),
       child: Text(label),
+    );
+  }
+}
+
+/// A ghost pill with a red dot, beside "Capture region".
+class _RecordButton extends StatelessWidget {
+  const _RecordButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
+    return Tooltip(
+      message: 'Record screen',
+      child: Material(
+        type: MaterialType.transparency,
+        shape: StadiumBorder(side: BorderSide(color: palette.ghostBorder)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: Ink(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            color: palette.ghostFill,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: const BoxDecoration(color: Color(0xFFE5484D), shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Record',
+                  style: TextStyle(
+                    fontFamily: AppFonts.body,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: palette.text,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

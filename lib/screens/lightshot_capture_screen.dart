@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:file_selector/file_selector.dart';
@@ -7,11 +8,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/annotation.dart';
+import '../models/recording_settings.dart';
 import '../services/clipboard_service.dart';
 import '../services/upload_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/annotation_painter.dart';
 import '../widgets/annotation_toolbar.dart';
+import '../widgets/glass_container.dart';
 
 enum _Phase { selecting, annotating }
 
@@ -26,12 +29,24 @@ class LightshotCaptureScreen extends StatefulWidget {
     required this.screenImage,
     required this.onClose,
     this.downscaleRetina = false,
+    this.onRecord,
+    this.recordSettings = const RecordingSettings(),
+    this.onRecordSettingsChanged,
   });
 
   /// Already-decoded frame — the capture service hands over a [ui.Image]
   /// directly so the overlay can paint on its very first frame.
   final ui.Image screenImage;
   final VoidCallback onClose;
+
+  /// Set when picking an area to *record*: the selection then gets the
+  /// record setup bar (audio, frame rate, Record) instead of the annotation
+  /// toolbar, and Record hands the area back here.
+  final ValueChanged<Rect>? onRecord;
+  final RecordingSettings recordSettings;
+  final ValueChanged<RecordingSettings>? onRecordSettingsChanged;
+
+  bool get recordMode => onRecord != null;
 
   /// Export at the screen's point size rather than its pixel size, so a 2x
   /// Retina capture isn't twice as big as what was on screen (Lightshot's
@@ -192,6 +207,16 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
 
   /// A drag the system took away (e.g. the window lost the mouse) must not
   /// leave its zero-size start behind as a stuck dot.
+  /// Record mode's "Full screen": the whole display, straight to setup.
+  void _selectFullScreen() {
+    setState(() {
+      _selection = Offset.zero & MediaQuery.of(context).size;
+      _dragStart = null;
+      _dragCurrent = null;
+      _phase = _Phase.annotating;
+    });
+  }
+
   void _handleSelectPanCancel() {
     setState(() {
       _dragStart = null;
@@ -619,12 +644,18 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                 ),
               ),
             if (selection == null)
-              const Positioned(
+              Positioned(
                 top: 24,
                 left: 0,
                 right: 0,
                 child: Center(
-                  child: _Hint(text: 'Drag to select an area  ·  Esc to cancel'),
+                  child: widget.recordMode
+                      ? _Hint(
+                          text: 'Drag to select the area to record  ·  Esc to cancel',
+                          action: 'Full screen',
+                          onAction: _selectFullScreen,
+                        )
+                      : const _Hint(text: 'Drag to select an area  ·  Esc to cancel'),
                 ),
               ),
             if (_phase == _Phase.annotating && selection != null)
@@ -633,7 +664,16 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                 onResize: (handle, delta) =>
                     _resizeSelection(handle, delta, MediaQuery.of(context).size),
               ),
-            if (_phase == _Phase.annotating && selection != null)
+            if (_phase == _Phase.annotating && selection != null && widget.recordMode)
+              _RecordSetupBar(
+                selection: selection,
+                screenSize: MediaQuery.of(context).size,
+                settings: widget.recordSettings,
+                onChanged: widget.onRecordSettingsChanged ?? (_) {},
+                onRecord: () => widget.onRecord!(selection),
+                onClose: widget.onClose,
+              ),
+            if (_phase == _Phase.annotating && selection != null && !widget.recordMode)
               AnnotationToolbar(
                 selection: selection,
                 screenSize: MediaQuery.of(context).size,
@@ -730,22 +770,148 @@ class _ScrimPainter extends CustomPainter {
 }
 
 class _Hint extends StatelessWidget {
-  const _Hint({required this.text});
+  const _Hint({required this.text, this.action, this.onAction});
 
   final String text;
+  final String? action;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     final palette = AlienPalette.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+      padding: EdgeInsets.fromLTRB(18, action == null ? 9 : 5, action == null ? 18 : 6, action == null ? 9 : 5),
       decoration: ShapeDecoration(
         color: palette.surface,
         shape: StadiumBorder(side: BorderSide(color: palette.glassBorder)),
       ),
-      child: Text(
-        text,
-        style: TextStyle(color: palette.textSoft, fontSize: 13, fontWeight: FontWeight.w500),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            text,
+            style: TextStyle(color: palette.textSoft, fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+          if (action != null) ...[
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              onPressed: onAction,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                minimumSize: Size.zero,
+                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              icon: const Icon(Icons.fullscreen_rounded, size: 16),
+              label: Text(action!),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Before a screen recording: audio sources, frame rate and the Record
+/// button, beside the chosen area (below it when there's room).
+class _RecordSetupBar extends StatelessWidget {
+  const _RecordSetupBar({
+    required this.selection,
+    required this.screenSize,
+    required this.settings,
+    required this.onChanged,
+    required this.onRecord,
+    required this.onClose,
+  });
+
+  final Rect selection;
+  final Size screenSize;
+  final RecordingSettings settings;
+  final ValueChanged<RecordingSettings> onChanged;
+  final VoidCallback onRecord;
+  final VoidCallback onClose;
+
+  static const double _height = 52;
+  static const double _width = 476;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AlienPalette.of(context);
+    final below = selection.bottom + 10 + _height + 8 <= screenSize.height;
+    final above = selection.top - 10 - _height >= 8;
+    final top = below
+        ? selection.bottom + 10
+        : above
+            ? selection.top - 10 - _height
+            : selection.bottom - _height - 12;
+    final left = (selection.center.dx - _width / 2).clamp(8.0, math.max(8.0, screenSize.width - _width - 8)).toDouble();
+
+    Widget toggle(IconData on, IconData off, String tip, bool value, VoidCallback onTap) => Tooltip(
+          message: tip,
+          child: IconButton(
+            onPressed: onTap,
+            isSelected: value,
+            icon: Icon(value ? on : off, size: 20, color: value ? palette.accentText : palette.textSoft),
+          ),
+        );
+
+    Widget menu<T>(String tip, String label, List<T> values, String Function(T) name, ValueChanged<T> onPick) =>
+        PopupMenuButton<T>(
+          tooltip: tip,
+          onSelected: onPick,
+          itemBuilder: (_) => [for (final v in values) PopupMenuItem(value: v, child: Text(name(v)))],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: palette.text)),
+                Icon(Icons.arrow_drop_down_rounded, size: 18, color: palette.textSoft),
+              ],
+            ),
+          ),
+        );
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: GlassContainer(
+        borderRadius: _height / 2,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: SizedBox(
+          width: _width - 16,
+          height: _height,
+          child: Row(
+            children: [
+              toggle(Icons.volume_up_rounded, Icons.volume_off_rounded,
+                  settings.systemAudio ? 'Computer audio: on' : 'Computer audio: off', settings.systemAudio,
+                  () => onChanged(settings.copyWith(systemAudio: !settings.systemAudio))),
+              toggle(Icons.mic_rounded, Icons.mic_off_rounded,
+                  settings.microphone ? 'Microphone: on' : 'Microphone: off', settings.microphone,
+                  () => onChanged(settings.copyWith(microphone: !settings.microphone))),
+              menu<int>('Resolution', RecordingSettings.outputHeightLabel(settings.outputHeight),
+                  RecordingSettings.outputHeights, RecordingSettings.outputHeightLabel,
+                  (h) => onChanged(settings.copyWith(outputHeight: h))),
+              menu<int>('Frames per second', '${settings.fps} fps', RecordingSettings.frameRates,
+                  (f) => '$f fps', (f) => onChanged(settings.copyWith(fps: f))),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: onRecord,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE5484D),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                ),
+                icon: const Icon(Icons.fiber_manual_record_rounded, size: 16),
+                label: const Text('Record'),
+              ),
+              IconButton(
+                tooltip: 'Cancel',
+                onPressed: onClose,
+                icon: Icon(Icons.close_rounded, size: 20, color: palette.textSoft),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -41,10 +41,13 @@ class AnnotationToolbar extends StatelessWidget {
     required this.onUndo,
     required this.onRedo,
     required this.onClear,
-    required this.onCopy,
-    required this.onSave,
-    required this.onUpload,
-    required this.onClose,
+    this.onCopy,
+    this.onSave,
+    this.onUpload,
+    this.onClose,
+    this.recording = false,
+    this.barKey,
+    this.panelKey,
   });
 
   final Rect selection;
@@ -77,10 +80,20 @@ class AnnotationToolbar extends StatelessWidget {
   final VoidCallback onUndo;
   final VoidCallback onRedo;
   final VoidCallback onClear;
-  final VoidCallback onCopy;
-  final VoidCallback onSave;
-  final VoidCallback onUpload;
-  final VoidCallback onClose;
+  final VoidCallback? onCopy;
+  final VoidCallback? onSave;
+  final VoidCallback? onUpload;
+  final VoidCallback? onClose;
+
+  /// During a screen recording: no Copy/Save/Link/Close, and the first
+  /// button (no tool) means "click through to your apps" rather than
+  /// "move the selection".
+  final bool recording;
+
+  /// Attached to the bar and the open flyout, so the recording overlay can
+  /// find where they are and keep clicks there for itself.
+  final GlobalKey? barKey;
+  final GlobalKey? panelKey;
 
   static const double barWidth = 48;
   static const double _gap = 10;
@@ -89,16 +102,16 @@ class AnnotationToolbar extends StatelessWidget {
   static const double _divider = 13;
 
   /// Button rows, top to bottom; null marks a divider.
-  static const List<String?> _rows = [
+  static const List<String?> _editRows = [
     'move', 'text', 'draw', 'stamp', 'eraser', 'color', null,
-    'undo', 'redo', 'clear', null,
-    'copy', 'save', 'upload', 'close',
+    'undo', 'redo', 'clear',
   ];
 
-  static double get barHeight =>
-      _pad * 2 + _rows.fold<double>(0, (h, r) => h + (r == null ? _divider : _slot));
+  List<String?> get _rows => recording ? _editRows : [..._editRows, null, 'copy', 'save', 'upload', 'close'];
 
-  static double _rowTop(String id) {
+  double get barHeight => _pad * 2 + _rows.fold<double>(0, (h, r) => h + (r == null ? _divider : _slot));
+
+  double _rowTop(String id) {
     var y = _pad;
     for (final r in _rows) {
       if (r == id) return y;
@@ -156,12 +169,14 @@ class AnnotationToolbar extends StatelessWidget {
     return Positioned.fill(
       child: Stack(
         children: [
-          Positioned(left: left, top: top, child: _bar(context)),
+          Positioned(left: left, top: top, child: KeyedSubtree(key: barKey, child: _bar(context))),
           if (panel != ToolbarPanel.none)
             Positioned(
               left: panelLeft,
               top: panelTop,
-              child: switch (panel) {
+              child: KeyedSubtree(
+                key: panelKey,
+                child: switch (panel) {
                 ToolbarPanel.draw => _DrawPanel(
                     tool: tool,
                     shapeKind: shapeKind,
@@ -176,7 +191,8 @@ class AnnotationToolbar extends StatelessWidget {
                     onPicked: onStampPicked,
                   ),
                 _ => _ColorPanel(color: color, onPicked: onColorChanged),
-              },
+                },
+              ),
             ),
         ],
       ),
@@ -191,10 +207,10 @@ class AnnotationToolbar extends StatelessWidget {
       switch (id) {
         case 'move':
           return _BarButton(
-            tooltip: 'Move selection',
+            tooltip: recording ? 'Pointer (use your apps)' : 'Move selection',
             selected: tool == null,
             onTap: () => onToolChanged(null),
-            child: const Icon(Icons.open_with_rounded),
+            child: Icon(recording ? Icons.near_me_rounded : Icons.open_with_rounded),
           );
         case 'text':
           return _BarButton(
@@ -262,14 +278,14 @@ class AnnotationToolbar extends StatelessWidget {
             child: const Icon(Icons.delete_outline_rounded),
           );
         case 'copy':
-          return _BarButton(tooltip: 'Copy', onTap: onCopy, child: const Icon(Icons.copy_rounded));
+          return _BarButton(tooltip: 'Copy', onTap: onCopy ?? () {}, child: const Icon(Icons.copy_rounded));
         case 'save':
-          return _BarButton(tooltip: 'Save', onTap: onSave, child: const Icon(Icons.download_rounded));
+          return _BarButton(tooltip: 'Save', onTap: onSave ?? () {}, child: const Icon(Icons.download_rounded));
         case 'upload':
           return _BarButton(
             tooltip: 'Upload link',
             enabled: !uploading,
-            onTap: onUpload,
+            onTap: onUpload ?? () {},
             child: uploading
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                 : Icon(Icons.link_rounded, color: palette.accentText),
@@ -277,7 +293,7 @@ class AnnotationToolbar extends StatelessWidget {
         default:
           return _BarButton(
             tooltip: 'Close',
-            onTap: onClose,
+            onTap: onClose ?? () {},
             danger: true,
             child: const Icon(Icons.close_rounded),
           );

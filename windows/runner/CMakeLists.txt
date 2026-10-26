@@ -8,6 +8,8 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "recorder_channel.cpp"
+  "screen_recorder.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -34,6 +36,10 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+# Screen recorder: Windows.Graphics.Capture (WinRT), Direct3D 11 / Direct2D,
+# Media Foundation encoders and WASAPI audio.
+target_link_libraries(${BINARY_NAME} PRIVATE "d3d11.lib" "dxgi.lib" "d2d1.lib"
+  "mfplat.lib" "mfreadwrite.lib" "mfuuid.lib" "windowsapp.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

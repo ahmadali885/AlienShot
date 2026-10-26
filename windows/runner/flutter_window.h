@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "recorder_channel.h"
 #include "win32_window.h"
 
 // Registered window message a second launch posts to the running copy, asking
@@ -37,6 +38,9 @@ class FlutterWindow : public Win32Window {
   // Forwards activation requests from a second launch to Dart.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> instance_channel_;
   UINT activate_message_ = 0;
+
+  // Screen recording ("alienshot/recorder").
+  std::unique_ptr<RecorderChannel> recorder_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

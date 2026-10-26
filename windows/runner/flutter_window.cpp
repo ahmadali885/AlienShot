@@ -34,6 +34,9 @@ bool FlutterWindow::OnCreate() {
       &flutter::StandardMethodCodec::GetInstance());
   activate_message_ = ::RegisterWindowMessageW(kActivateMessageName);
 
+  recorder_channel_ = std::make_unique<RecorderChannel>(
+      flutter_controller_->engine()->messenger(), GetHandle());
+
   // No show-on-first-frame here: AlienShot starts hidden in the tray and the Dart
   // side (window_manager) decides when the window appears. The template's
   // Show() raced the app's own hide() at startup and could leave the window
@@ -43,7 +46,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
-  // The channel talks through the engine's messenger, so it goes first.
+  // The channels talk through the engine's messenger, so they go first.
+  recorder_channel_ = nullptr;
   instance_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;

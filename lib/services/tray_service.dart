@@ -12,11 +12,38 @@ class TrayService {
   Future<void> init({
     required VoidCallback onSignIn,
     required VoidCallback onCapture,
+    VoidCallback? onRecord,
     required VoidCallback onOptions,
     required VoidCallback onAbout,
     required VoidCallback onHelp,
     required VoidCallback onExit,
+    VoidCallback? onStopRecording,
+    VoidCallback? onPauseRecording,
   }) async {
+    await _setNormalIcon();
+    await trayManager.setToolTip('AlienShot');
+
+    _hasRecord = onRecord != null;
+    _actions = {
+      'sign_in': onSignIn,
+      'capture': onCapture,
+      if (onRecord != null) 'record': onRecord,
+      if (onStopRecording != null) 'stop_recording': onStopRecording,
+      if (onPauseRecording != null) 'pause_recording': onPauseRecording,
+      'options': onOptions,
+      'about': onAbout,
+      'help': onHelp,
+      'exit': onExit,
+    };
+    await _applyMenu();
+  }
+
+  Map<String, VoidCallback> _actions = const {};
+  bool _hasRecord = false;
+  bool _recording = false;
+  bool _paused = false;
+
+  Future<void> _setNormalIcon() async {
     if (Platform.isMacOS) {
       // A template image: macOS tints the black alien silhouette itself to
       // suit a light or dark menu bar, as native menu-bar icons do.
@@ -24,9 +51,10 @@ class TrayService {
     } else {
       await trayManager.setIcon('assets/images/tray_icon.ico');
     }
-    await trayManager.setToolTip('AlienShot');
+  }
 
-    await trayManager.setContextMenu(
+  Future<void> _applyMenu() {
+    return trayManager.setContextMenu(
       Menu(
         items: Platform.isMacOS
             // Lightshot's menu-bar menu on the Mac.
@@ -38,9 +66,15 @@ class TrayService {
                 MenuItem(key: 'exit', label: 'Quit AlienShot'),
               ]
             : [
+                if (_recording) ...[
+                  MenuItem(key: 'stop_recording', label: 'Stop recording'),
+                  MenuItem(key: 'pause_recording', label: _paused ? 'Resume recording' : 'Pause recording'),
+                  MenuItem.separator(),
+                ],
                 MenuItem(key: 'sign_in', label: 'Sign In…'),
                 MenuItem.separator(),
                 MenuItem(key: 'capture', label: 'Take a screenshot'),
+                if (_hasRecord && !_recording) MenuItem(key: 'record', label: 'Record screen'),
                 MenuItem(key: 'options', label: 'Options…'),
                 MenuItem(key: 'about', label: 'About…'),
                 MenuItem(key: 'help', label: 'Help'),
@@ -48,18 +82,28 @@ class TrayService {
               ],
       ),
     );
-
-    _actions = {
-      'sign_in': onSignIn,
-      'capture': onCapture,
-      'options': onOptions,
-      'about': onAbout,
-      'help': onHelp,
-      'exit': onExit,
-    };
   }
 
-  Map<String, VoidCallback> _actions = const {};
+  /// While a recording runs with no window on screen, the tray icon is the
+  /// only sign of it: a red dot, a tooltip saying how to stop, and Stop /
+  /// Pause at the top of the menu.
+  Future<void> setRecording({required bool recording, bool paused = false, String? stopHint}) async {
+    if (recording == _recording && paused == _paused) return;
+    _recording = recording;
+    _paused = paused;
+    if (recording) {
+      await trayManager.setIcon('assets/images/tray_icon_recording.ico');
+      final state = paused ? 'Recording paused' : 'Recording';
+      await trayManager.setToolTip(stopHint == null ? 'AlienShot — $state' : 'AlienShot — $state ($stopHint to stop)');
+    } else {
+      await _setNormalIcon();
+      await trayManager.setToolTip('AlienShot');
+    }
+    await _applyMenu();
+  }
+
+  /// After a recording finishes, the tooltip says where it went.
+  Future<void> setTooltip(String text) => trayManager.setToolTip(text);
 
   void handleMenuClick(MenuItem menuItem) => _actions[menuItem.key]?.call();
 

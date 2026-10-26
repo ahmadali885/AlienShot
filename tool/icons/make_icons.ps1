@@ -122,6 +122,21 @@ foreach ($s in 16, 20, 24, 32, 40, 48, 64) { $b = Render-Tile $s $false 0.02; $t
 Write-Ico "$OutDir\tray_icon.ico" $tray
 $b = Render-Tile 64 $false 0.02; Save-Png $b "$OutDir\tray_icon.png"; $b.Dispose()
 
+# Tray icon while recording: the same tile with a red dot at the bottom right.
+$recording = @()
+foreach ($s in 16, 20, 24, 32, 40, 48, 64) {
+  $b = Render-Tile $s $false 0.02
+  $g = [System.Drawing.Graphics]::FromImage($b)
+  $g.SmoothingMode = 'AntiAlias'
+  $d = [float]($s * 0.5); $x = [float]($s - $d); $y = [float]($s - $d)
+  $g.FillEllipse((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)), $x - 1, $y - 1, $d + 1, $d + 1)
+  $g.FillEllipse((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 229, 72, 77))), $x, $y, $d - 1, $d - 1)
+  $g.Dispose()
+  $recording += @{ Size = $s; Png = (Icon-Bytes $b) }
+  $b.Dispose()
+}
+Write-Ico "$OutDir\tray_icon_recording.ico" $recording
+
 # macOS app icon set: Big Sur style keeps ~10% transparent margin around the tile.
 foreach ($s in 16, 32, 64, 128, 256, 512, 1024) { $b = Render-Tile $s ($s -ge 64) 0.10; Save-Png $b "$OutDir\mac_app_icon_$s.png"; $b.Dispose() }
 

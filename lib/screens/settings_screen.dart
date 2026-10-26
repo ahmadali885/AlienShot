@@ -9,6 +9,7 @@ import '../widgets/glass_container.dart';
 import '../widgets/hotkey_recorder_dialog.dart';
 import '../widgets/liquid_background.dart';
 import '../widgets/pill_button.dart';
+import '../widgets/recording_settings_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -17,9 +18,13 @@ class SettingsScreen extends StatefulWidget {
     required this.onSave,
     required this.onBack,
     required this.onPreviewTheme,
+    this.initialTab,
   });
 
   final AppSettings settings;
+
+  /// The tab to open on: 'recording' opens the Recording tab.
+  final String? initialTab;
   final ValueChanged<AppSettings> onSave;
 
   /// Leaving without saving; the app also drops any theme preview.
@@ -36,7 +41,8 @@ class SettingsScreen extends StatefulWidget {
 enum _SettingsTab {
   general('Settings'),
   afterCapture('After capture'),
-  saveFolder('Save folder');
+  saveFolder('Save folder'),
+  recording('Recording');
 
   const _SettingsTab(this.label);
   final String label;
@@ -44,7 +50,7 @@ enum _SettingsTab {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late AppSettings _draft = widget.settings;
-  _SettingsTab _tab = _SettingsTab.general;
+  late _SettingsTab _tab = widget.initialTab == 'recording' ? _SettingsTab.recording : _SettingsTab.general;
 
   Future<void> _pickSaveDirectory() async {
     final path = await getDirectoryPath();
@@ -101,6 +107,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTab.general => _generalTab(palette),
             _SettingsTab.afterCapture => _afterCaptureTab(),
             _SettingsTab.saveFolder => _saveFolderTab(palette),
+            _SettingsTab.recording => [
+                RecordingSettingsPanel(
+                  settings: _draft.recording,
+                  onChanged: (recording) => setState(() => _draft = _draft.copyWith(recording: recording)),
+                ),
+              ],
           },
         ),
       ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart' show ThemeMode;
 
+import 'recording_settings.dart';
+
 class AppSettings {
   AppSettings({
     required this.hotKeyPresetId,
@@ -12,6 +14,7 @@ class AppSettings {
     this.themeMode = ThemeMode.system,
     this.displayName = '',
     this.downscaleRetina = true,
+    this.recording = const RecordingSettings(),
   });
 
   /// Light, dark, or follow the Windows/macOS app theme.
@@ -23,6 +26,9 @@ class AppSettings {
   /// macOS: export captures at point size instead of Retina pixel size.
   /// On by default, as in Lightshot.
   final bool downscaleRetina;
+
+  /// Screen recording options (the Recording tab).
+  final RecordingSettings recording;
 
   final String hotKeyPresetId;
   final bool autoCopyOnCapture;
@@ -56,12 +62,20 @@ class AppSettings {
     themeMode: ThemeMode.values.asNameMap()[json['themeMode']] ?? ThemeMode.system,
     displayName: json['displayName'] as String? ?? '',
     downscaleRetina: json['downscaleRetina'] as bool? ?? true,
+    recording: RecordingSettings.fromJson({
+      // Early builds kept three recording options at the top level.
+      if (json['recordSystemAudio'] != null) 'systemAudio': json['recordSystemAudio'],
+      if (json['recordMicrophone'] != null) 'microphone': json['recordMicrophone'],
+      if (json['recordFps'] != null) 'fps': json['recordFps'],
+      ...?(json['recording'] as Map<String, dynamic>?),
+    }),
   );
 
   Map<String, dynamic> toJson() => {
     'themeMode': themeMode.name,
     'displayName': displayName,
     'downscaleRetina': downscaleRetina,
+    'recording': recording.toJson(),
     'hotKeyPresetId': hotKeyPresetId,
     'autoCopyOnCapture': autoCopyOnCapture,
     'autoUploadOnCapture': autoUploadOnCapture,
@@ -81,11 +95,13 @@ class AppSettings {
     ThemeMode? themeMode,
     String? displayName,
     bool? downscaleRetina,
+    RecordingSettings? recording,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
       displayName: displayName ?? this.displayName,
       downscaleRetina: downscaleRetina ?? this.downscaleRetina,
+      recording: recording ?? this.recording,
       hotKeyPresetId: hotKeyPresetId ?? this.hotKeyPresetId,
       autoCopyOnCapture: autoCopyOnCapture ?? this.autoCopyOnCapture,
       autoUploadOnCapture: autoUploadOnCapture ?? this.autoUploadOnCapture,

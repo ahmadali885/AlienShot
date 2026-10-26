@@ -65,7 +65,14 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
                 const SizedBox(width: 9),
                 const BrandWordmark(),
               ] else if (titleWidget != null)
-                titleWidget!
+                // Takes the free width and scrolls rather than pushing the
+                // actions off the bar when the window is narrow.
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: titleWidget!,
+                  ),
+                )
               else
                 Text(
                   title,
@@ -76,7 +83,7 @@ class AppWindowBar extends StatelessWidget implements PreferredSizeWidget {
                     color: palette.text,
                   ),
                 ),
-              const Spacer(),
+              if (titleWidget == null || brand) const Spacer(),
               ...actions,
               const SizedBox(width: 6),
             ],

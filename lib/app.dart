@@ -10,23 +10,28 @@ import 'package:window_manager/window_manager.dart';
 
 import 'models/app_settings.dart';
 import 'models/hotkey_preset.dart';
+import 'models/recording_settings.dart';
 import 'screens/about_screen.dart';
 import 'screens/help_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/lightshot_capture_screen.dart';
 import 'screens/mac_preferences_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/quick_overlay_screen.dart';
+import 'screens/recording_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/capture_service.dart';
 import 'services/hotkey_availability.dart';
 import 'services/memory_trim.dart';
+import 'services/recorder_service.dart';
 import 'services/settings_service.dart';
 import 'services/tray_service.dart';
 import 'services/window_focus.dart';
 import 'theme/app_theme.dart';
+import 'widgets/recording_saved_dialog.dart';
 import 'widgets/sign_in_dialog.dart';
 
-enum _View { home, settings, preferences, capture, about, help, profile }
+enum _View { home, settings, preferences, capture, overlay, recording, about, help, profile }
 
 /// The active theme choice. Lives above [MaterialApp] so the home state below
 /// it can switch themes, including a live preview from Settings.
@@ -62,6 +67,23 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     with WindowListener, TrayListener, WidgetsBindingObserver {
   ui.Image? _fullScreenImage;
   bool _capturing = false;
+
+  /// The capture overlay is picking an area to record, not to screenshot.
+  bool _recordMode = false;
+
+  /// The area being recorded while [_View.recording] is up; null = the
+  /// whole screen.
+  Rect? _recordRegion;
+
+  /// A full-screen recording waiting for the window to finish going full
+  /// screen before its overlay is built.
+  bool _recordingPending = false;
+
+  /// The Settings tab to open on next, e.g. 'recording' from the overlay.
+  String? _settingsTab;
+
+  /// Lets the record/pause hotkeys reach the recording overlay.
+  final GlobalKey<RecordingScreenState> _recordingKey = GlobalKey();
 
   /// Drives [TickerMode] around the screens. The animated background would
   /// otherwise keep rendering at full frame rate while AlienShot sits hidden in
@@ -134,10 +156,13 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     await trayService.init(
       onSignIn: _showSignInComingSoon,
       onCapture: _captureRegion,
+      onRecord: recorderService.isSupported ? _recordScreen : null,
       onOptions: () => _openWindow(_settingsView),
       onAbout: () => _openWindow(_View.about),
       onHelp: () => _openWindow(_View.help),
       onExit: _quit,
+      onStopRecording: recorderService.isSupported ? _stopAnyRecording : null,
+      onPauseRecording: recorderService.isSupported ? _togglePauseRecording : null,
     );
 
     final hotKeyOk = await _registerHotKey();
@@ -173,18 +198,47 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     });
   }
 
-  /// Returns false when the shortcut is already owned by another program.
+  /// Shortcuts another program already owned at the last registration,
+  /// e.g. "Alt + X (overlay)", for the warning.
+  List<String> _takenHotKeys = const [];
+
+  /// Registers the capture shortcut and, where recording is available, the
+  /// overlay / record / pause ones. Returns false if any is already owned by
+  /// another program.
   Future<bool> _registerHotKey() async {
     await hotKeyManager.unregisterAll();
+    final taken = <String>[];
     final hotKey = resolveHotKey(_settings);
     // A cleared shortcut (macOS Preferences) leaves nothing to claim.
     final free = hotKey == null || isHotKeyFree(hotKey);
     if (hotKey != null && free) {
       await hotKeyManager.register(hotKey, keyDownHandler: (_) => _captureRegion());
+    } else if (!free) {
+      taken.add('${resolveHotKeyLabel(_settings)} (screenshot)');
     }
     await trayService.setShortcutHint(free ? hotKey : null);
+
+    if (recorderService.isSupported) {
+      final recording = _settings.recording;
+      for (final (binding, name, action) in [
+        (recording.overlayHotKey, 'overlay', _toggleOverlay),
+        (recording.recordHotKey, 'start/stop recording', _toggleRecording),
+        (recording.pauseHotKey, 'pause recording', _togglePauseRecording),
+      ]) {
+        if (binding == null) continue;
+        final recordingHotKey = binding.toHotKey();
+        // Probed after ours are registered, so two of our own shortcuts on
+        // the same keys show up as a clash too.
+        if (isHotKeyFree(recordingHotKey)) {
+          await hotKeyManager.register(recordingHotKey, keyDownHandler: (_) => action());
+        } else {
+          taken.add('${binding.label} ($name)');
+        }
+      }
+    }
+    _takenHotKeys = taken;
     if (mounted) setState(() => _hotKeyActive = free);
-    return free;
+    return taken.isEmpty;
   }
 
   /// Where "Options…"/"Preferences…" and the gear lead: the Mac gets
@@ -199,9 +253,9 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
       builder: (context) => AlertDialog(
         title: const Text('Shortcut unavailable'),
         content: Text(
-          '${resolveHotKeyLabel(_settings)} is already used by another program, '
-          'so AlienShot can\'t respond to it. Pick a different shortcut — '
-          'you can still capture from the tray icon meanwhile.',
+          '${_takenHotKeys.join(', ')} ${_takenHotKeys.length == 1 ? 'is' : 'are'} already used by another '
+          'program, so AlienShot can\'t respond to ${_takenHotKeys.length == 1 ? 'it' : 'them'}. Pick a '
+          'different shortcut — the tray icon still works meanwhile.',
           style: TextStyle(color: AlienPalette.of(context).textSoft, height: 1.4),
         ),
         actions: [
@@ -213,14 +267,156 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     if (change == true && mounted) await _openWindow(_settingsView);
   }
 
+  /// Starts picking an area to record (Windows only for now).
+  Future<void> _recordScreen() => _captureRegion(record: true);
+
+  /// The record hotkey: stops a running recording, else starts one — of
+  /// the whole screen straight away (like NVIDIA's), or by picking an area,
+  /// as the settings say.
+  void _toggleRecording() {
+    if (_hiddenRecording) {
+      _stopHiddenRecording();
+    } else if (_view == _View.recording) {
+      _recordingKey.currentState?.stop();
+    } else if (!_settings.recording.hotKeyStartsFullScreen) {
+      _recordScreen();
+    } else if (_settings.recording.hotKeyShowsControls) {
+      _recordFullScreen();
+    } else {
+      _startHiddenRecording();
+    }
+  }
+
+  void _togglePauseRecording() {
+    if (_hiddenRecording) {
+      _toggleHiddenPause();
+    } else if (_view == _View.recording) {
+      _recordingKey.currentState?.togglePause();
+    }
+  }
+
+  /// Stop from the tray menu, whichever kind of recording is running.
+  void _stopAnyRecording() {
+    if (_hiddenRecording) {
+      _stopHiddenRecording();
+    } else if (_view == _View.recording) {
+      _recordingKey.currentState?.stop();
+    }
+  }
+
+  // --- Recording with nothing on screen (the record hotkey, NVIDIA-style) ---
+  //
+  // No window, no overlay: the native recorder grabs the monitor under the
+  // cursor by itself, and the tray icon turning red is the only sign. With
+  // no window over a game, Windows can keep presenting it the fast way.
+
+  bool _hiddenRecording = false;
+  bool _hiddenPaused = false;
+  String? _hiddenPath;
+
+  Future<void> _startHiddenRecording() async {
+    if (_hiddenRecording || _capturing || _view == _View.capture || _view == _View.recording) return;
+    if (_view == _View.overlay) await _closeCapture();
+    final settings = _settings.recording;
+    try {
+      final path = await recorderService.newRecordingPath(settings);
+      await recorderService.start(region: Rect.zero, monitorAtCursor: true, path: path, settings: settings);
+      _hiddenPath = path;
+      _hiddenRecording = true;
+      _hiddenPaused = false;
+      await trayService.setRecording(recording: true, stopHint: settings.recordHotKey?.label);
+    } on PlatformException catch (e) {
+      // Nothing is recording, so this is worth a window.
+      await _showRecordingError(e.message ?? 'The recording could not start.');
+    }
+  }
+
+  Future<void> _toggleHiddenPause() async {
+    if (!_hiddenRecording) return;
+    _hiddenPaused ? await recorderService.resume() : await recorderService.pause();
+    _hiddenPaused = !_hiddenPaused;
+    await trayService.setRecording(
+      recording: true,
+      paused: _hiddenPaused,
+      stopHint: _settings.recording.recordHotKey?.label,
+    );
+  }
+
+  Future<void> _stopHiddenRecording() async {
+    if (!_hiddenRecording) return;
+    _hiddenRecording = false;
+    await trayService.setRecording(recording: false);
+    try {
+      await recorderService.stop();
+      // Still nothing on screen (the user may be mid-game): the tray says
+      // where the video went, and the overlay's Recordings tile opens it.
+      final name = _hiddenPath!.split(Platform.pathSeparator).last;
+      await trayService.setTooltip('AlienShot — saved $name');
+    } on PlatformException catch (e) {
+      await _showRecordingError(e.message ?? 'The recording could not be saved.');
+    }
+  }
+
+  Future<void> _showRecordingError(String message) async {
+    await _openWindow(_View.home);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Couldn't record"),
+        content: Text(message, style: TextStyle(color: AlienPalette.of(context).textSoft, height: 1.4)),
+        actions: [FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK'))],
+      ),
+    );
+  }
+
+  /// Records the whole screen without picking an area: the window goes
+  /// full screen and see-through first, and only then is the recording
+  /// overlay built, so it measures the real screen size.
+  Future<void> _recordFullScreen() async {
+    if (_capturing || _view == _View.capture || _view == _View.recording || _hiddenRecording) return;
+    if (!recorderService.isSupported) return;
+    final fromOverlay = _view == _View.overlay;
+    setState(() {
+      _discardCapture();
+      _recordRegion = null;
+      _recordingPending = true;
+      _view = _View.recording;
+    });
+    await windowManager.setBackgroundColor(Colors.transparent);
+    if (!fromOverlay) {
+      await windowManager.setSkipTaskbar(false);
+      await _showWindow();
+      await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+      await _coverScreen();
+    }
+    await windowManager.setAlwaysOnTop(true);
+    // Let the full-screen size reach Flutter before the overlay reads it.
+    await Future.delayed(const Duration(milliseconds: 150));
+    if (mounted) setState(() => _recordingPending = false);
+  }
+
   /// Grabs a full-screen snapshot, then shows our own single-surface
   /// select-and-annotate screen on top of it — like Lightshot, never the
   /// OS Snipping Tool and never a separate editor window.
-  Future<void> _captureRegion() async {
+  /// With [overlay], the frozen screen becomes the backdrop of the NVIDIA-
+  /// style overlay instead of the selection screen.
+  Future<void> _captureRegion({bool record = false, bool overlay = false}) async {
+    // From the overlay, its frozen frame (taken before it appeared) is reused:
+    // screenshot and area selection open instantly.
+    if (_view == _View.overlay && _fullScreenImage != null && !overlay) {
+      if (record && (!recorderService.isSupported || _hiddenRecording)) return;
+      setState(() {
+        _recordMode = record;
+        _view = _View.capture;
+      });
+      return;
+    }
     // Also ignore the shortcut while the overlay is up: the hotkey isn't
     // registered with MOD_NOREPEAT, so holding the key a moment too long fires
     // it again, which hid the overlay mid-drag to take a fresh capture.
-    if (_capturing || _view == _View.capture) return;
+    if (_capturing || _view == _View.capture || _view == _View.recording || _view == _View.overlay) return;
+    if ((record || overlay) && (!recorderService.isSupported || _hiddenRecording)) return;
     _capturing = true;
     try {
       // On macOS a capture without Screen Recording permission silently
@@ -250,7 +446,8 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
 
       setState(() {
         _fullScreenImage = image;
-        _view = _View.capture;
+        _recordMode = record;
+        _view = overlay ? _View.overlay : _View.capture;
       });
 
       // show()/focus() before toggling fullscreen+titlebar: applying those
@@ -327,25 +524,33 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   /// including mid-capture, whose fullscreen chrome has to be undone first or
   /// the resize below has no effect.
   Future<void> _openWindow(_View view) async {
-    if (_view == _View.capture) await _restoreNormalWindowChrome();
+    // The recording overlay must stay put until the user stops it.
+    if (_view == _View.recording) return;
+    if (_view == _View.capture || _view == _View.overlay) await _restoreNormalWindowChrome();
     setState(() {
       _view = view;
       _discardCapture();
     });
     // The Mac preferences hold two rows; a compact window suits them, as
-    // Lightshot's does.
-    await windowManager.setSize(view == _View.preferences ? const Size(460, 250) : const Size(480, 460));
+    // Lightshot's does. Settings (with the OBS-style Recording tab) needs room.
+    await windowManager.setSize(switch (view) {
+      _View.preferences => const Size(460, 250),
+      _View.settings => const Size(720, 640),
+      _ => const Size(480, 460),
+    });
     await windowManager.center();
     await windowManager.setSkipTaskbar(false);
     await _showWindow();
     await windowManager.focus();
   }
 
-  void _openSettings() {
+  /// [tab] opens Settings on that tab, e.g. 'recording' from the overlay.
+  void _openSettings({String? tab}) {
     if (Platform.isMacOS) {
       _openWindow(_View.preferences);
     } else {
-      setState(() => _view = _View.settings);
+      _settingsTab = tab;
+      _openWindow(_View.settings);
     }
   }
 
@@ -385,12 +590,84 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     await _captureRegion();
   }
 
-  void _quit() {
+  Future<void> _quit() async {
+    // A recording that isn't finished is an unplayable file; save it first.
+    if (_hiddenRecording) await _stopHiddenRecording();
+    if (_view == _View.recording) await _recordingKey.currentState?.stop();
     exit(0);
+  }
+
+  /// Record pressed: the frozen frame goes and the window turns into the
+  /// see-through, always-on-top recording overlay (still full screen).
+  Future<void> _beginRecording(Rect region) async {
+    setState(() {
+      _discardCapture();
+      _recordRegion = region;
+      _view = _View.recording;
+    });
+    await windowManager.setBackgroundColor(Colors.transparent);
+    await windowManager.setAlwaysOnTop(true);
+  }
+
+  /// The recording overlay is done: [path] when a file was saved, else
+  /// [error] (empty when the user just backed out during the countdown).
+  Future<void> _endRecording({String? path, String error = ''}) async {
+    await recorderService.setClickThrough(enabled: false);
+    await windowManager.setAlwaysOnTop(false);
+    await windowManager.setBackgroundColor(AppColors.ink);
+    await _restoreNormalWindowChrome();
+    setState(() {
+      _recordRegion = null;
+      _recordMode = false;
+      _view = _View.home;
+    });
+    if (path == null && error.isEmpty) {
+      await windowManager.setSkipTaskbar(true);
+      await _hideWindow();
+      return;
+    }
+    await _openWindow(_View.home);
+    if (!mounted) return;
+    if (path != null) {
+      await showRecordingSavedDialog(context, path);
+    } else {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Couldn't record"),
+          content: Text(error, style: TextStyle(color: AlienPalette.of(context).textSoft, height: 1.4)),
+          actions: [FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK'))],
+        ),
+      );
+    }
+  }
+
+  /// Quick changes from the record bar and overlay; saved straight away.
+  Future<void> _saveRecordingSettings(RecordingSettings recording) async {
+    final settings = _settings.copyWith(recording: recording);
+    setState(() => _settings = settings);
+    await settingsService.save(settings);
+  }
+
+  /// The overlay hotkey: opens the NVIDIA-style overlay, or closes it.
+  Future<void> _toggleOverlay() async {
+    if (_view == _View.overlay) {
+      await _closeCapture();
+    } else if (_view != _View.recording && _view != _View.capture) {
+      await _captureRegion(overlay: true);
+    }
+  }
+
+  Future<void> _openRecordingsFolder() async {
+    final folder = Directory(recorderService.folderFor(_settings.recording));
+    await folder.create(recursive: true);
+    await Process.start('explorer.exe', [folder.path]);
   }
 
   @override
   void onWindowClose() async {
+    // Closing the overlay mid-recording would lose the file; Stop saves it.
+    if (_view == _View.recording) return;
     // Keep running in the tray instead of quitting when the window is closed.
     setState(() {
       _discardCapture();
@@ -406,7 +683,10 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   // icons conventionally open their menu on any click.
   @override
   void onTrayIconMouseDown() {
-    if (Platform.isWindows) {
+    if (_hiddenRecording) {
+      // The red tray icon is the recording's stop button.
+      _stopHiddenRecording();
+    } else if (Platform.isWindows) {
       _captureFromTray();
     } else {
       trayService.showMenu();
@@ -439,6 +719,36 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
           screenImage: image,
           onClose: _closeCapture,
           downscaleRetina: Platform.isMacOS && _settings.downscaleRetina,
+          onRecord: _recordMode ? _beginRecording : null,
+          recordSettings: _settings.recording,
+          onRecordSettingsChanged: _saveRecordingSettings,
+        );
+      case _View.overlay:
+        return QuickOverlayScreen(
+          backdrop: _fullScreenImage,
+          settings: _settings.recording,
+          overlayHotKeyLabel: _settings.recording.overlayHotKey?.label,
+          recordHotKeyLabel: _settings.recording.recordHotKey?.label,
+          onScreenshot: () => _captureRegion(),
+          onRecordFullScreen: _recordFullScreen,
+          onRecordArea: _recordScreen,
+          onOpenRecordings: () {
+            _openRecordingsFolder();
+            _closeCapture();
+          },
+          onOpenSettings: () => _openSettings(tab: 'recording'),
+          onSettingsChanged: _saveRecordingSettings,
+          onClose: _closeCapture,
+        );
+      case _View.recording:
+        // See-through and empty until a full-screen window is in place.
+        if (_recordingPending) return const SizedBox.shrink();
+        return RecordingScreen(
+          key: _recordingKey,
+          region: _recordRegion,
+          settings: _settings.recording,
+          onFinished: (path) => _endRecording(path: path),
+          onError: (error) => _endRecording(error: error),
         );
       case _View.preferences:
         return MacPreferencesScreen(
@@ -449,12 +759,14 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
       case _View.settings:
         return SettingsScreen(
           settings: _settings,
+          initialTab: _settingsTab,
           onSave: _saveSettings,
           onPreviewTheme: _applyTheme,
           onBack: () {
             // Drops an unsaved theme preview; after Save this is a no-op.
             _applyTheme(_settings.themeMode);
-            setState(() => _view = _View.home);
+            // Back to the home window's own (smaller) size.
+            _openWindow(_View.home);
           },
         );
       case _View.about:
@@ -475,6 +787,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
           hotKeyLabel: resolveHotKeyLabel(_settings),
           hotKeyActive: _hotKeyActive,
           onCapture: _captureRegion,
+          onRecord: recorderService.isSupported ? _recordScreen : null,
           onOpenSettings: _openSettings,
           onOpenAbout: () => setState(() => _view = _View.about),
           onOpenProfile: () => setState(() => _view = _View.profile),

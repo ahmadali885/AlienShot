@@ -183,3 +183,39 @@ String resolveHotKeyLabel(AppSettings settings) {
   }
   return HotKeyPreset.byId(settings.hotKeyPresetId).label;
 }
+
+/// A shortcut stored by physical key and modifiers, for the recording
+/// hotkeys (overlay, start/stop, pause).
+class HotKeyBinding {
+  const HotKeyBinding(this.key, this.modifiers);
+
+  final PhysicalKeyboardKey key;
+  final List<HotKeyModifier> modifiers;
+
+  String get label => formatHotKey(key, modifiers);
+
+  HotKey toHotKey() => HotKey(key: key, modifiers: modifiers, scope: HotKeyScope.system);
+
+  Map<String, Object> toJson() => {
+        'usage': key.usbHidUsage,
+        'modifiers': [for (final m in modifiers) m.name],
+      };
+
+  static HotKeyBinding? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final usage = json['usage'];
+    if (usage is! int) return null;
+    return HotKeyBinding(
+      PhysicalKeyboardKey.findKeyByCode(usage) ?? PhysicalKeyboardKey(usage),
+      [for (final name in (json['modifiers'] as List? ?? const [])) _modifierFromName(name as String)],
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is HotKeyBinding && other.key == key && other.modifiers.toSet().containsAll(modifiers) &&
+      modifiers.toSet().containsAll(other.modifiers);
+
+  @override
+  int get hashCode => Object.hash(key, Object.hashAllUnordered(modifiers));
+}
