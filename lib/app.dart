@@ -593,10 +593,10 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
 
   /// Sets the window to fullscreen + hidden-titlebar while it is hidden, so
   /// the next capture can skip those steps and appear instantly.
+  /// Works on both Windows (avoids DWM animation) and macOS (setOverlayMode
+  /// is already immediate, but skipping it entirely is even faster).
   Future<void> _prewarmOverlay() async {
     if (_overlayPrewarmed) return;
-    // Only relevant on Windows; macOS setOverlayMode is its own fast path.
-    if (!Platform.isWindows) return;
     await windowManager.setTitleBarStyle(
       TitleBarStyle.hidden,
       windowButtonVisibility: false,
