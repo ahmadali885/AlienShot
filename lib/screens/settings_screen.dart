@@ -19,9 +19,13 @@ class SettingsScreen extends StatefulWidget {
     required this.onBack,
     required this.onPreviewTheme,
     this.initialTab,
+    this.showRecordingTab = false,
   });
 
   final AppSettings settings;
+
+  /// Whether the Recording tab is offered (only where recording is available).
+  final bool showRecordingTab;
 
   /// The tab to open on: 'recording' opens the Recording tab.
   final String? initialTab;
@@ -50,7 +54,8 @@ enum _SettingsTab {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late AppSettings _draft = widget.settings;
-  late _SettingsTab _tab = widget.initialTab == 'recording' ? _SettingsTab.recording : _SettingsTab.general;
+  late _SettingsTab _tab =
+      widget.showRecordingTab && widget.initialTab == 'recording' ? _SettingsTab.recording : _SettingsTab.general;
 
   Future<void> _pickSaveDirectory() async {
     final path = await getDirectoryPath();
@@ -88,7 +93,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       extendBodyBehindAppBar: true,
       appBar: AppWindowBar(
         title: 'Settings',
-        titleWidget: _TabBar(value: _tab, onChanged: (tab) => setState(() => _tab = tab)),
+        titleWidget: _TabBar(
+          tabs: [
+            for (final tab in _SettingsTab.values)
+              if (tab != _SettingsTab.recording || widget.showRecordingTab) tab,
+          ],
+          value: _tab,
+          onChanged: (tab) => setState(() => _tab = tab),
+        ),
         leading: IconButton(
           icon: Icon(Icons.arrow_back_rounded, size: 18, color: palette.textSoft),
           onPressed: widget.onBack,
@@ -231,8 +243,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 /// "Settings · After capture · Save folder" in the title bar; the active page
 /// sits on a filled pill like the site's nav group.
 class _TabBar extends StatelessWidget {
-  const _TabBar({required this.value, required this.onChanged});
+  const _TabBar({required this.tabs, required this.value, required this.onChanged});
 
+  final List<_SettingsTab> tabs;
   final _SettingsTab value;
   final ValueChanged<_SettingsTab> onChanged;
 
@@ -242,7 +255,7 @@ class _TabBar extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (final tab in _SettingsTab.values)
+        for (final tab in tabs)
           Padding(
             padding: const EdgeInsets.only(right: 2),
             child: Material(

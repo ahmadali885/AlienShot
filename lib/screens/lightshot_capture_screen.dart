@@ -89,9 +89,27 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
   double _strokeWidth = kStrokeWidths[1];
   bool _uploading = false;
 
+  /// Inline text tool: set to the tap point while the user is typing.
+  Offset? _textEditPosition;
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _textFocusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // Commit text when the inline field loses focus (e.g. user clicks elsewhere).
+    _textFocusNode.addListener(() {
+      if (!_textFocusNode.hasFocus && _textEditPosition != null) {
+        _commitTextEdit();
+      }
+    });
+  }
+
   @override
   void dispose() {
     _focusNode.dispose();
+    _textController.dispose();
+    _textFocusNode.dispose();
     super.dispose();
   }
 
@@ -364,42 +382,50 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
       case AnnotationTool.eraser:
         _eraseAt(point);
       case AnnotationTool.text:
-        final text = await _promptForText();
-        if (text == null || text.trim().isEmpty) return;
-        _commit(() => _annotations.add(
-              TextAnnotation(
-                position: point,
-                text: text.trim(),
-                color: _color,
-                fontSize: 14 + _strokeWidth * 2,
-              ),
-            ));
+        // Show the inline field directly on the canvas — no dialog.
+        setState(() {
+          _textEditPosition = point;
+          _textController.clear();
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) => _textFocusNode.requestFocus());
       default:
         break;
     }
   }
 
-  Future<String?> _promptForText() {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add text'),
-        content: TextField(controller: controller, autofocus: true, onSubmitted: (v) => Navigator.of(context).pop(v)),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text), child: const Text('Add')),
-        ],
-      ),
-    );
+  /// Commits whatever is in [_textController] as a [TextAnnotation] and
+  /// hides the inline editor.
+  void _commitTextEdit() {
+    final pos = _textEditPosition;
+    final text = _textController.text.trim();
+    if (pos != null && text.isNotEmpty) {
+      _commit(() => _annotations.add(TextAnnotation(
+            position: pos,
+            text: text,
+            color: _color,
+            fontSize: 14 + _strokeWidth * 2,
+          )));
+    }
+    setState(() => _textEditPosition = null);
+    _textController.clear();
+    // Return keyboard focus to the shortcut handler.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
+  }
+
+  void _cancelTextEdit() {
+    setState(() => _textEditPosition = null);
+    _textController.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
   }
 
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape) {
-      // An open flyout closes first; a second Esc cancels the capture.
-      if (_panel != ToolbarPanel.none) {
+      if (_textEditPosition != null) {
+        _cancelTextEdit();
+      } else if (_panel != ToolbarPanel.none) {
+        // An open flyout closes first; a second Esc cancels the capture.
         _closePanel();
       } else {
         widget.onClose();
@@ -673,6 +699,20 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                 onRecord: () => widget.onRecord!(selection),
                 onClose: widget.onClose,
               ),
+            // Inline text field: floats at the exact tap point, no dialog.
+            if (_textEditPosition != null && selection != null)
+              Positioned(
+                left: _textEditPosition!.dx,
+                top: _textEditPosition!.dy,
+                child: _InlineTextField(
+                  controller: _textController,
+                  focusNode: _textFocusNode,
+                  color: _color,
+                  fontSize: 14 + _strokeWidth * 2,
+                  onSubmit: _commitTextEdit,
+                  onCancel: _cancelTextEdit,
+                ),
+              ),
             if (_phase == _Phase.annotating && selection != null && !widget.recordMode)
               AnnotationToolbar(
                 selection: selection,
@@ -724,6 +764,68 @@ class _LightshotCaptureScreenState extends State<LightshotCaptureScreen> {
                 onClose: widget.onClose,
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A transparent in-place text entry that appears right where the user tapped.
+/// Enter commits; Escape discards. Grows with content via [IntrinsicWidth].
+class _InlineTextField extends StatelessWidget {
+  const _InlineTextField({
+    required this.controller,
+    required this.focusNode,
+    required this.color,
+    required this.fontSize,
+    required this.onSubmit,
+    required this.onCancel,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final Color color;
+  final double fontSize;
+  final VoidCallback onSubmit;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          onCancel();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: IntrinsicWidth(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 60, maxWidth: 600),
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            style: TextStyle(
+              color: color,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w600,
+              shadows: [
+                Shadow(color: Colors.black.withValues(alpha: 0.7), blurRadius: 4),
+              ],
+            ),
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+            cursorColor: color,
+            cursorWidth: 2,
+            maxLines: null, // allow newlines with Shift+Enter
+            onSubmitted: (_) => onSubmit(),
+          ),
         ),
       ),
     );

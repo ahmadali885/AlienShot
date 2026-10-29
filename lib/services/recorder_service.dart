@@ -32,7 +32,12 @@ class AudioDevice {
 class RecorderService {
   static const _channel = MethodChannel('alienshot/recorder');
 
-  bool get isSupported => Platform.isWindows;
+  /// Screen recording is switched off for now: with this false, every way
+  /// into it (record buttons, the overlay, its hotkeys, the tray items and
+  /// the Recording settings tab) is hidden. Flip it to bring it all back.
+  static const enabled = false;
+
+  bool get isSupported => enabled && Platform.isWindows;
 
   /// Starts recording [region] to [path] (an .mp4) — or, with
   /// [monitorAtCursor], the whole monitor under the mouse, needing no window.
@@ -98,7 +103,9 @@ class RecorderService {
 
   /// Active speakers and microphones, defaults first.
   Future<List<AudioDevice>> listAudioDevices() async {
-    if (!isSupported) return const [];
+    // The native side can list devices whether or not recording is switched
+    // on; only the Recording settings panel asks.
+    if (!Platform.isWindows) return const [];
     final list = await _channel.invokeMethod<List<Object?>>('listAudioDevices') ?? const [];
     final devices = [
       for (final item in list.cast<Map<Object?, Object?>>())

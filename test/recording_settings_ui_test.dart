@@ -41,6 +41,7 @@ void main() {
       home: SettingsScreen(
         settings: AppSettings.defaults(),
         initialTab: 'recording',
+        showRecordingTab: true,
         onSave: (s) => saved = s,
         onBack: () {},
         onPreviewTheme: (_) {},

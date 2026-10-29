@@ -9,6 +9,7 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "recorder_channel.cpp"
+  "recording_border.cpp"
   "screen_recorder.cpp"
   "main.cpp"
   "utils.cpp"

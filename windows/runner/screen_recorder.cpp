@@ -1,5 +1,7 @@
 #include "screen_recorder.h"
 
+#include "recording_border.h"
+
 // <unknwn.h> before the C++/WinRT headers lets winrt::com_ptr / as<> work
 // with classic COM interfaces such as IDirect3DDxgiInterfaceAccess.
 #include <unknwn.h>
@@ -45,7 +47,17 @@ constexpr UINT32 kAudioRate = 48000;
 constexpr UINT32 kAudioChannels = 2;
 // Frames in flight between capture and encoder; the hardware encoder holds
 // two or three at most.
-constexpr int kTextureCount = 4;
+// More in-flight frames than strictly needed, so a burst of GPU contention
+// (a game pinning the card) can't starve the encoder into dropping frames —
+// the recording stays smooth even when the screen itself never stutters.
+// These textures exist only while recording, so idle RAM is unaffected.
+constexpr int kTextureCount = 6;
+
+// The on-screen recording frame: AlienShot's danger red while recording, its
+// amber while paused. Shown to the user, excluded from the capture itself.
+constexpr COLORREF kRecordingRed = RGB(229, 72, 77);     // #E5484D
+constexpr COLORREF kRecordingAmber = RGB(255, 180, 84);  // #FFB454
+constexpr int kBorderThickness = 4;
 
 std::string Fail(const char* what, HRESULT hr) {
   char buffer[160];
@@ -258,12 +270,14 @@ class ScreenRecorder::Impl {
     if (!recording_ || paused_) return;
     pause_started_ = Now100ns();
     paused_ = true;
+    border_.SetColor(kRecordingAmber);
   }
 
   void Resume() {
     if (!recording_ || !paused_) return;
     paused_total_ += Now100ns() - pause_started_;
     paused_ = false;
+    border_.SetColor(kRecordingRed);
   }
 
   std::string Stop() {
@@ -365,6 +379,7 @@ class ScreenRecorder::Impl {
 
     ComPtr<IDXGIDevice> dxgi_device;
     device_.As(&dxgi_device);
+    SetGpuPriority(dxgi_device.Get(), true);
     hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
     if (SUCCEEDED(hr)) hr = d2d_factory_->CreateDevice(dxgi_device.Get(), &d2d_device_);
     if (SUCCEEDED(hr)) {
@@ -385,7 +400,7 @@ class ScreenRecorder::Impl {
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
     // An 8K frame is 130 MB; keep fewer of those in flight.
-    texture_count_ = static_cast<uint64_t>(width_) * height_ > 3840ull * 2160 ? 3 : kTextureCount;
+    texture_count_ = static_cast<uint64_t>(width_) * height_ > 3840ull * 2160 ? 4 : kTextureCount;
     for (int i = 0; i < texture_count_; ++i) {
       hr = device_->CreateTexture2D(&desc, nullptr, &textures_[i]);
       ComPtr<IDXGISurface> surface;
@@ -550,9 +565,12 @@ class ScreenRecorder::Impl {
       winrt::check_hresult(interop->CreateForMonitor(
           monitor, winrt::guid_of<wgc::GraphicsCaptureItem>(), winrt::put_abi(item)));
 
+      // Three buffers, not two: under heavy GPU load WGC hands frames over in
+      // bursts, and a spare buffer keeps capture from dropping one while the
+      // encoder is still finishing the last.
       frame_pool_ = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(
           capture_device, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized,
-          2, item.Size());
+          3, item.Size());
       session_ = frame_pool_.CreateCaptureSession(item);
       session_.IsCursorCaptureEnabled(options.cursor);
       try {
@@ -577,11 +595,34 @@ class ScreenRecorder::Impl {
     }
 
     if (!audio_sources_.empty()) audio_thread_ = std::thread([this] { AudioLoop(); });
+
+    // A red frame around the recorded area, so it's unmistakable a recording
+    // is running even with no window on screen. Excluded from the capture, so
+    // it never shows up in the video.
+    border_.Show(clipped, kRecordingRed, kBorderThickness);
     return "";
   }
 
+  // A game that keeps the GPU at 100% would otherwise get all of it: the
+  // scheduler queues our capture copy and the encoder's input conversion
+  // behind its frames, and the video drops to a few frames a second while
+  // the game itself stays smooth. Like OBS, ask for a higher GPU (and CPU)
+  // scheduling class while recording — a normal user may do this — and give
+  // it back afterwards. Our own GPU work is tiny, so the game barely notices.
+  static void SetGpuPriority(IDXGIDevice* device, bool boost) {
+    using SetClass = LONG(APIENTRY*)(HANDLE, INT);
+    static const auto set_class = reinterpret_cast<SetClass>(
+        GetProcAddress(GetModuleHandleW(L"gdi32.dll"), "D3DKMTSetProcessSchedulingPriorityClass"));
+    constexpr INT kNormal = 2, kHigh = 4;  // D3DKMT_SCHEDULINGPRIORITYCLASS
+    if (set_class) set_class(GetCurrentProcess(), boost ? kHigh : kNormal);
+    if (device) device->SetGPUThreadPriority(boost ? 7 : 0);
+    SetPriorityClass(GetCurrentProcess(), boost ? ABOVE_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS);
+  }
+
   void Teardown() {
+    if (recording_ || device_) SetGpuPriority(nullptr, false);
     recording_ = false;
+    border_.Hide();
     frame_revoker_.revoke();
     session_ = nullptr;
     frame_pool_ = nullptr;
@@ -831,6 +872,8 @@ class ScreenRecorder::Impl {
   wgc::Direct3D11CaptureFramePool frame_pool_{nullptr};
   wgc::GraphicsCaptureSession session_{nullptr};
   wgc::Direct3D11CaptureFramePool::FrameArrived_revoker frame_revoker_;
+
+  RecordingBorder border_;
 };
 
 ScreenRecorder::ScreenRecorder() : impl_(std::make_unique<Impl>()) {}

@@ -82,6 +82,15 @@ void main() {
     await tester.pump();
     expect(calls.where((c) => c.method == 'stop'), hasLength(1));
     expect(saved, start['path']);
+
+    // The window shrinking back to normal rebuilds the screen once more; that
+    // must not switch click-through on again (it left the next window
+    // unclickable).
+    final sent = calls.where((c) => c.method == 'setClickThrough').length;
+    tester.view.physicalSize = const Size(480, 460);
+    await tester.pump();
+    await tester.pump();
+    expect(calls.where((c) => c.method == 'setClickThrough'), hasLength(sent));
   });
 
   testWidgets('drawing takes the mouse and sends the marks to the recorder', variant: _windows, (tester) async {

@@ -28,7 +28,6 @@ import 'services/settings_service.dart';
 import 'services/tray_service.dart';
 import 'services/window_focus.dart';
 import 'theme/app_theme.dart';
-import 'widgets/recording_saved_dialog.dart';
 import 'widgets/sign_in_dialog.dart';
 
 enum _View { home, settings, preferences, capture, overlay, recording, about, help, profile }
@@ -92,6 +91,12 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   bool _windowVisible = false;
   _View _view = _View.home;
   AppSettings _settings = AppSettings.defaults();
+
+  /// True once the window has been set to fullscreen + hidden-titlebar while
+  /// hidden in the tray, so the next capture can skip those steps entirely and
+  /// just show the already-positioned window. Reset whenever we open a normal
+  /// (home / settings) window.
+  bool _overlayPrewarmed = false;
 
   /// False when another program already owns the configured shortcut.
   bool _hotKeyActive = true;
@@ -450,17 +455,26 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
         _view = overlay ? _View.overlay : _View.capture;
       });
 
-      // show()/focus() before toggling fullscreen+titlebar: applying those
-      // to a still-hidden window is unreliable and can leave a normal-sized
-      // bordered window on screen instead of a proper fullscreen overlay.
       await windowManager.setSkipTaskbar(false);
-      await _showWindow();
-      await windowManager.focus();
-      await windowManager.setTitleBarStyle(
-        TitleBarStyle.hidden,
-        windowButtonVisibility: false,
-      );
-      await _coverScreen();
+      if (_overlayPrewarmed) {
+        // Window is already fullscreen + titlebar-hidden from the previous
+        // capture. Just show and focus — no DWM animation, ~instant.
+        _overlayPrewarmed = false;
+        await _showWindow();
+        await windowManager.focus();
+      } else {
+        // First capture or after settings were opened: full setup required.
+        // show()/focus() before toggling fullscreen+titlebar: applying those
+        // to a still-hidden window is unreliable and can leave a normal-sized
+        // bordered window on screen instead of a proper fullscreen overlay.
+        await _showWindow();
+        await windowManager.focus();
+        await windowManager.setTitleBarStyle(
+          TitleBarStyle.hidden,
+          windowButtonVisibility: false,
+        );
+        await _coverScreen();
+      }
     } finally {
       _capturing = false;
     }
@@ -496,9 +510,12 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
       _discardCapture();
       _view = _View.home;
     });
-    await _restoreNormalWindowChrome();
+    // Keep the window in fullscreen + hidden-titlebar state so the next
+    // capture can appear instantly (no DWM animation on show). Chrome is
+    // restored lazily in _openWindow if the user opens settings instead.
     await windowManager.setSkipTaskbar(true);
     await _hideWindow();
+    _overlayPrewarmed = true;
   }
 
   /// Unconditionally resets fullscreen/titlebar state — safe to call even if
@@ -526,7 +543,10 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   Future<void> _openWindow(_View view) async {
     // The recording overlay must stay put until the user stops it.
     if (_view == _View.recording) return;
-    if (_view == _View.capture || _view == _View.overlay) await _restoreNormalWindowChrome();
+    if (_view == _View.capture || _view == _View.overlay || _overlayPrewarmed) {
+      await _restoreNormalWindowChrome();
+      _overlayPrewarmed = false;
+    }
     setState(() {
       _view = view;
       _discardCapture();
@@ -540,6 +560,9 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
     });
     await windowManager.center();
     await windowManager.setSkipTaskbar(false);
+    // A window that's open for use must take clicks, whatever a recording
+    // left behind.
+    if (recorderService.isSupported) await recorderService.setClickThrough(enabled: false);
     await _showWindow();
     await windowManager.focus();
   }
@@ -564,6 +587,22 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   Future<void> _minimizeToTray() async {
     await windowManager.setSkipTaskbar(true);
     await _hideWindow();
+    // Pre-warm the overlay so the first hotkey press is also instant.
+    await _prewarmOverlay();
+  }
+
+  /// Sets the window to fullscreen + hidden-titlebar while it is hidden, so
+  /// the next capture can skip those steps and appear instantly.
+  Future<void> _prewarmOverlay() async {
+    if (_overlayPrewarmed) return;
+    // Only relevant on Windows; macOS setOverlayMode is its own fast path.
+    if (!Platform.isWindows) return;
+    await windowManager.setTitleBarStyle(
+      TitleBarStyle.hidden,
+      windowButtonVisibility: false,
+    );
+    await _coverScreen();
+    _overlayPrewarmed = true;
   }
 
   /// Tray "Sign In…": lands on the profile page, where signing in will live.
@@ -621,16 +660,22 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
       _recordMode = false;
       _view = _View.home;
     });
-    if (path == null && error.isEmpty) {
+    // Again, now the recording screen is gone: nothing can turn it back on.
+    await WidgetsBinding.instance.endOfFrame;
+    await recorderService.setClickThrough(enabled: false);
+    if (error.isEmpty) {
+      // No popup: back to the tray, which says where the video went (the
+      // overlay's Recordings tile opens the folder), as hotkey recording does.
       await windowManager.setSkipTaskbar(true);
       await _hideWindow();
+      if (path != null) {
+        await trayService.setTooltip('AlienShot — saved ${path.split(Platform.pathSeparator).last}');
+      }
       return;
     }
     await _openWindow(_View.home);
     if (!mounted) return;
-    if (path != null) {
-      await showRecordingSavedDialog(context, path);
-    } else {
+    {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
@@ -760,6 +805,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
         return SettingsScreen(
           settings: _settings,
           initialTab: _settingsTab,
+          showRecordingTab: recorderService.isSupported,
           onSave: _saveSettings,
           onPreviewTheme: _applyTheme,
           onBack: () {

@@ -187,7 +187,10 @@ class RecordingScreenState extends State<RecordingScreen> {
   /// Keeps clicks for us over the controls (and everywhere while drawing);
   /// everything else goes through to the apps being recorded.
   void _syncHitAreas() {
-    if (!mounted) return;
+    // Once stopping, the app turns click-through off as the window goes back
+    // to normal; a last rebuild here must not switch it on again, or the
+    // next window would let every click fall through to the desktop.
+    if (!mounted || _stage == _Stage.stopping) return;
     Rect? rectOf(GlobalKey key) {
       final box = key.currentContext?.findRenderObject() as RenderBox?;
       if (box == null || !box.hasSize) return null;
