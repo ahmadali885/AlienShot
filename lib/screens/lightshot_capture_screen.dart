@@ -860,11 +860,48 @@ class _ScrimPainter extends CustomPainter {
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
     canvas.drawRect(selection!, glowPaint);
 
+    // Dotted border — same look as Lightshot's marching-ants selection.
     final borderPaint = Paint()
       ..color = AppColors.accent2
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
-    canvas.drawRect(selection!, borderPaint);
+
+    // White background dots so the dashes read on any screen content.
+    final whiteDots = Paint()
+      ..color = Colors.white.withValues(alpha: 0.85)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    const dash = 4.0;
+    const gap = 4.0;
+
+    void drawDashedRect(Paint p) {
+      final r = selection!;
+      for (final seg in [
+        [r.topLeft, r.topRight],
+        [r.topRight, r.bottomRight],
+        [r.bottomRight, r.bottomLeft],
+        [r.bottomLeft, r.topLeft],
+      ]) {
+        final start = seg[0];
+        final end = seg[1];
+        final total = (end - start).distance;
+        final dir = (end - start) / total;
+        double pos = 0;
+        bool drawing = true;
+        while (pos < total) {
+          final segLen = (drawing ? dash : gap).clamp(0, total - pos);
+          if (drawing) {
+            canvas.drawLine(start + dir * pos, start + dir * (pos + segLen), p);
+          }
+          pos += segLen;
+          drawing = !drawing;
+        }
+      }
+    }
+
+    drawDashedRect(whiteDots);
+    drawDashedRect(borderPaint);
   }
 
   @override
