@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -46,6 +47,11 @@ class _LiquidBackgroundState extends State<LiquidBackground> {
   @override
   void initState() {
     super.initState();
+    // The shader redraws every frame of the timer below. On macOS that's
+    // routed through ANGLE/Metal and costs noticeably more CPU than on
+    // Windows for the same 30 fps — enough that it showed up as "load" on
+    // an otherwise idle screenshot tool. Mac just gets the static gradient.
+    if (Platform.isMacOS) return;
     (_program ??= ui.FragmentProgram.fromAsset('shaders/hero.frag')).then(
       (program) {
         if (!mounted) return;
