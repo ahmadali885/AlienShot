@@ -98,6 +98,12 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
   /// (home / settings) window.
   bool _overlayPrewarmed = false;
 
+  /// The monitor (physical-pixel, virtual-screen rect) the prewarmed overlay
+  /// is currently fullscreen on. Compared against the monitor under the
+  /// cursor on the next capture — on a mismatch the window has to be moved,
+  /// so the prewarm fast path is skipped and a full setup runs instead.
+  Rect? _prewarmedMonitor;
+
   /// False when another program already owns the configured shortcut.
   bool _hotKeyActive = true;
 
@@ -428,6 +434,11 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
       // returns the bare desktop, so bail out and let the OS ask first.
       if (!await captureService.ensureScreenCaptureAccess()) return;
 
+      // Which monitor to capture and show the overlay on — the one the mouse
+      // is actually on, not whatever monitor the (hidden) window happens to
+      // still be sitting on from last time.
+      final targetMonitor = Platform.isWindows ? captureService.monitorRectAtCursor() : null;
+
       // Hide our own window first so it never ends up inside the capture —
       // but only when it's actually on screen. Triggered from the tray
       // hotkey (the common case), the window was never shown, so there's
@@ -446,7 +457,7 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
         await Future.delayed(const Duration(milliseconds: 80));
       }
 
-      final image = await captureService.captureScreen();
+      final image = await captureService.captureScreen(monitor: targetMonitor);
       if (image == null) return;
 
       setState(() {
@@ -456,24 +467,46 @@ class _SnapGrabHomeState extends State<SnapGrabHome>
       });
 
       await windowManager.setSkipTaskbar(false);
-      if (_overlayPrewarmed) {
+      // The fast path only helps if the window is already sitting fullscreen
+      // on the SAME monitor we need this time — otherwise it has to be moved,
+      // so fall back to the full setup below.
+      final canUseFastPath =
+          _overlayPrewarmed && (targetMonitor == null || targetMonitor == _prewarmedMonitor);
+      if (canUseFastPath) {
         // Window is already fullscreen + titlebar-hidden from the previous
         // capture. Just show and focus — no DWM animation, ~instant.
         _overlayPrewarmed = false;
         await _showWindow();
         await windowManager.focus();
       } else {
-        // First capture or after settings were opened: full setup required.
-        // show()/focus() before toggling fullscreen+titlebar: applying those
-        // to a still-hidden window is unreliable and can leave a normal-sized
-        // bordered window on screen instead of a proper fullscreen overlay.
+        _overlayPrewarmed = false;
+        // First capture, after settings were opened, or the cursor has moved
+        // to a different monitor: full setup required. show()/focus() before
+        // toggling fullscreen+titlebar: applying those to a still-hidden
+        // window is unreliable and can leave a normal-sized bordered window
+        // on screen instead of a proper fullscreen overlay.
         await _showWindow();
         await windowManager.focus();
         await windowManager.setTitleBarStyle(
           TitleBarStyle.hidden,
           windowButtonVisibility: false,
         );
+        if (targetMonitor != null) {
+          // Move the window onto the target monitor first — setFullScreen()
+          // below always fullscreens onto whichever monitor the window is
+          // currently nearest to, so it has to already be there.
+          final ratio = WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio;
+          await windowManager.setBounds(
+            Rect.fromLTWH(
+              targetMonitor.left / ratio,
+              targetMonitor.top / ratio,
+              targetMonitor.width / ratio,
+              targetMonitor.height / ratio,
+            ),
+          );
+        }
         await _coverScreen();
+        _prewarmedMonitor = targetMonitor;
       }
     } finally {
       _capturing = false;

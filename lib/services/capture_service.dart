@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/painting.dart' show Rect;
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:win32/win32.dart';
@@ -16,9 +17,39 @@ class CaptureService {
   /// writes it to a temp file, reads it back and decodes it again — on a 4K
   /// display that round trip alone costs a second or more, which is what made
   /// the overlay feel sluggish compared to Lightshot.
-  Future<ui.Image?> captureScreen() {
-    if (Platform.isWindows) return _captureWindows();
+  Future<ui.Image?> captureScreen({Rect? monitor}) {
+    if (Platform.isWindows) return _captureWindows(monitor);
     return _captureViaPlugin();
+  }
+
+  /// The monitor under the mouse cursor, as a physical-pixel rect in virtual
+  /// -screen coordinates (negative left/top for a monitor above/left of the
+  /// primary one). Null on anything but Windows, or if the lookup fails.
+  ///
+  /// Without this, a hotkey press always captured and overlaid the primary
+  /// monitor — [_captureWindows] used to just grab [SM_CXSCREEN]/
+  /// [SM_CYSCREEN] from (0, 0) — so on a second monitor the selection overlay
+  /// never appeared where the user actually was.
+  Rect? monitorRectAtCursor() {
+    if (!Platform.isWindows) return null;
+    final cursor = calloc<POINT>();
+    final info = calloc<MONITORINFO>();
+    try {
+      if (GetCursorPos(cursor) == 0) return null;
+      final monitor = MonitorFromPoint(cursor.ref, MONITOR_DEFAULTTONEAREST);
+      info.ref.cbSize = sizeOf<MONITORINFO>();
+      if (GetMonitorInfo(monitor, info) == 0) return null;
+      final r = info.ref.rcMonitor;
+      return Rect.fromLTRB(
+        r.left.toDouble(),
+        r.top.toDouble(),
+        r.right.toDouble(),
+        r.bottom.toDouble(),
+      );
+    } finally {
+      calloc.free(cursor);
+      calloc.free(info);
+    }
   }
 
   /// macOS gates screen capture behind a Screen Recording permission. Without
@@ -32,9 +63,14 @@ class CaptureService {
     return false;
   }
 
-  Future<ui.Image?> _captureWindows() async {
-    final width = GetSystemMetrics(SM_CXSCREEN);
-    final height = GetSystemMetrics(SM_CYSCREEN);
+  /// [monitor], when given, is the physical-pixel rect (virtual-screen
+  /// coordinates) of the monitor to grab — the one under the cursor. Without
+  /// it, this falls back to the primary monitor at (0, 0).
+  Future<ui.Image?> _captureWindows([Rect? monitor]) async {
+    final left = monitor != null ? monitor.left.round() : 0;
+    final top = monitor != null ? monitor.top.round() : 0;
+    final width = monitor != null ? monitor.width.round() : GetSystemMetrics(SM_CXSCREEN);
+    final height = monitor != null ? monitor.height.round() : GetSystemMetrics(SM_CYSCREEN);
     if (width <= 0 || height <= 0) return null;
 
     final screenDC = GetDC(NULL);
@@ -46,7 +82,7 @@ class CaptureService {
     final info = calloc<BITMAPINFO>();
     final buffer = calloc<Uint8>(byteCount);
     try {
-      BitBlt(memoryDC, 0, 0, width, height, screenDC, 0, 0, SRCCOPY);
+      BitBlt(memoryDC, 0, 0, width, height, screenDC, left, top, SRCCOPY);
       // GetDIBits needs the bitmap unselected from the DC.
       SelectObject(memoryDC, previousBitmap);
 
